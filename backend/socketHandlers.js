@@ -629,7 +629,7 @@ export function setupSocketHandlers(io, db) {
             momentum: team.momentum,
           });
 
-          socket.emit('solo_finished', { results: [{ ...result, rank: 1 }] });
+          socket.emit('solo_finished', { results: [{ ...result, rank: 1 }], balls: { [currentTeamId]: ball } });
           return;
         }
 
@@ -700,7 +700,7 @@ export function setupSocketHandlers(io, db) {
 
       room.soloRaces.delete(socket.id);
 
-      socket.emit('solo_finished', { results: [{ ...result, rank: 1 }] });
+      socket.emit('solo_finished', { results: [{ ...result, rank: 1 }], balls: { [currentTeamId]: ball } });
 
       console.log(`⏹️ 솔로 연습 정지! 팀 [${team?.name}]`);
     }));

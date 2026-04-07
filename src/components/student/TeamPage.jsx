@@ -51,6 +51,7 @@ export default function TeamPage() {
 
   const [paramsConfirmed, setParamsConfirmed] = useState(false);
   const [soloRunning, setSoloRunning] = useState(false);
+  const [soloResults, setSoloResults] = useState(null);
 
   useEffect(() => {
     if (myTeam) setMyTeamId(String(myTeam.id));
@@ -123,14 +124,17 @@ export default function TeamPage() {
       if (state.results) setResults(state.results);
     });
 
-    // 솔로 이벤트
+    // 솔로 이벤트 — balls store에도 반영하여 3D 씬에 표시
     socket.on('solo_tick', (data) => {
       setSoloBalls(data.balls || {});
+      updateBalls(data.balls || {});
     });
 
     socket.on('solo_finished', (data) => {
       setSoloRunning(false);
       setSoloBalls(data.balls || {});
+      updateBalls(data.balls || {});
+      if (data.results) setSoloResults(data.results);
     });
 
     return () => {
@@ -169,6 +173,8 @@ export default function TeamPage() {
 
   const startSolo = useCallback(() => {
     const socket = getSocket();
+    setMapLevel(soloMapLevel); // 3D 씬 지형 동기화
+    setSoloResults(null);
     socket.emit('start_solo', {
       mapLevel: soloMapLevel,
       learningRate: myLearningRate,
@@ -176,7 +182,7 @@ export default function TeamPage() {
     });
     setSoloRunning(true);
     setSoloMode(true);
-  }, [soloMapLevel, myLearningRate, myMomentum, setSoloMode]);
+  }, [soloMapLevel, myLearningRate, myMomentum, setSoloMode, setMapLevel]);
 
   const stopSolo = useCallback(() => {
     const socket = getSocket();
@@ -296,6 +302,34 @@ export default function TeamPage() {
                 >
                   {'\u23F9'} 솔로 정지
                 </button>
+              )}
+
+              {/* 솔로 결과 표시 */}
+              {soloResults && !soloRunning && (
+                <div className="card" style={{ padding: 14, marginTop: 10 }}>
+                  <h4 style={{ fontSize: 13, marginBottom: 8 }}>{'\uD83C\uDFC1'} 솔로 연습 결과</h4>
+                  {soloResults.map((r, i) => (
+                    <div key={i} style={{ fontSize: 12, padding: '4px 0', display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: r.status === 'converged' ? 'var(--success)' : r.status === 'escaped' ? 'var(--danger)' : 'var(--warning)' }}>
+                        {r.status === 'converged' ? '\uD83C\uDFC1 수렴!' : r.status === 'escaped' ? '\uD83D\uDCA5 발산' : '\uD83C\uDFD4\uFE0F 로컬 미니마'}
+                      </span>
+                      <span style={{ color: 'var(--text-dim)' }}>
+                        {r.time ? (r.time / 1000).toFixed(1) + 's' : '-'} | Loss: {r.finalLoss?.toFixed(3) || '?'}
+                      </span>
+                    </div>
+                  ))}
+                  <button
+                    onClick={startSolo}
+                    style={{
+                      width: '100%', padding: 8, marginTop: 8,
+                      background: 'rgba(99,102,241,0.2)', border: '1px solid rgba(99,102,241,0.4)',
+                      borderRadius: 'var(--radius)', color: '#a5b4fc', fontWeight: 600,
+                      fontSize: 12, cursor: 'pointer',
+                    }}
+                  >
+                    {'\uD83D\uDD04'} 같은 맵 다시 도전
+                  </button>
+                </div>
               )}
             </div>
           </>
