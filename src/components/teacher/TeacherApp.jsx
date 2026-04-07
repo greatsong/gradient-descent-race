@@ -216,12 +216,12 @@ export default function TeacherApp() {
   return (
     <div style={{ display: 'flex', height: '100vh', background: 'var(--bg)', overflow: 'hidden' }}>
 
-      {/* 좌측 패널 (35%) */}
+      {/* 좌측 패널 (고정 320px) */}
       <div style={{
-        width: '35%', minWidth: 360, maxWidth: 500,
+        width: 320, minWidth: 320, maxWidth: 320,
         borderRight: '1px solid var(--border)',
-        overflowY: 'auto', padding: 20,
-        display: 'flex', flexDirection: 'column', gap: 16,
+        overflowY: 'auto', padding: 16,
+        display: 'flex', flexDirection: 'column', gap: 14,
       }}>
 
         {/* 세션 코드 */}
@@ -590,8 +590,8 @@ export default function TeacherApp() {
 
       </div>
 
-      {/* 우측 3D 씬 (65%) */}
-      <div style={{ flex: 1 }}>
+      {/* 우측 3D 씬 */}
+      <div style={{ flex: 1, minHeight: 500 }}>
         <GradientRaceScene />
       </div>
 

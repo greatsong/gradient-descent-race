@@ -32,6 +32,8 @@ const useRaceStore = create(
       soloMode: false,
       soloBalls: {},
       soloMapLevel: 1,
+      soloLr: 0.1,
+      soloMomentum: 0.9,
 
       // 액션
       setMyLearningRate: (v) => set({ myLearningRate: v }),
@@ -51,6 +53,8 @@ const useRaceStore = create(
       setSoloMode: (soloMode) => set({ soloMode }),
       setSoloBalls: (soloBalls) => set({ soloBalls }),
       setSoloMapLevel: (level) => set({ soloMapLevel: level }),
+      setSoloLr: (v) => set({ soloLr: v }),
+      setSoloMomentum: (v) => set({ soloMomentum: v }),
 
       reset: () => set({
         phase: 'lobby',

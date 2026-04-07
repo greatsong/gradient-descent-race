@@ -46,6 +46,7 @@ export default function TeamPage() {
     countdownSeconds, setCountdownSeconds,
     soloMode, setSoloMode, soloBalls, setSoloBalls,
     soloMapLevel, setSoloMapLevel,
+    soloLr, setSoloLr, soloMomentum, setSoloMomentum,
     reset,
   } = useRaceStore();
 
@@ -177,12 +178,12 @@ export default function TeamPage() {
     setSoloResults(null);
     socket.emit('start_solo', {
       mapLevel: soloMapLevel,
-      learningRate: myLearningRate,
-      momentum: myMomentum,
+      learningRate: soloLr,
+      momentum: soloMomentum,
     });
     setSoloRunning(true);
     setSoloMode(true);
-  }, [soloMapLevel, myLearningRate, myMomentum, setSoloMode, setMapLevel]);
+  }, [soloMapLevel, soloLr, soloMomentum, setSoloMode, setMapLevel]);
 
   const stopSolo = useCallback(() => {
     const socket = getSocket();
@@ -201,12 +202,12 @@ export default function TeamPage() {
   return (
     <div style={{ display: 'flex', height: '100vh', background: 'var(--bg)', overflow: 'hidden' }}>
 
-      {/* 좌측 패널 (35%) */}
+      {/* 좌측 패널 (고정 320px) */}
       <div style={{
-        width: '35%', minWidth: 340, maxWidth: 480,
+        width: 320, minWidth: 320, maxWidth: 320,
         borderRight: '1px solid var(--border)',
-        overflowY: 'auto', padding: 20,
-        display: 'flex', flexDirection: 'column', gap: 14,
+        overflowY: 'auto', padding: 16,
+        display: 'flex', flexDirection: 'column', gap: 12,
       }}>
 
         {/* 헤더 */}
@@ -255,16 +256,16 @@ export default function TeamPage() {
                 </div>
               </div>
 
-              {/* 솔로 파라미터 */}
+              {/* 솔로 파라미터 (독립) */}
               <div style={{ marginBottom: 8 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 2 }}>
                   <span>LR</span>
-                  <span style={{ fontWeight: 700, color: '#6366f1' }}>{myLearningRate.toFixed(2)}</span>
+                  <span style={{ fontWeight: 700, color: '#6366f1' }}>{soloLr.toFixed(2)}</span>
                 </div>
                 <input
                   type="range" min={0.01} max={1.5} step={0.01}
-                  value={myLearningRate}
-                  onChange={e => setMyLearningRate(parseFloat(e.target.value))}
+                  value={soloLr}
+                  onChange={e => setSoloLr(parseFloat(e.target.value))}
                   disabled={soloRunning}
                   style={{ width: '100%', accentColor: '#6366f1' }}
                 />
@@ -272,12 +273,12 @@ export default function TeamPage() {
               <div style={{ marginBottom: 10 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 2 }}>
                   <span>Momentum</span>
-                  <span style={{ fontWeight: 700, color: '#6366f1' }}>{myMomentum.toFixed(2)}</span>
+                  <span style={{ fontWeight: 700, color: '#6366f1' }}>{soloMomentum.toFixed(2)}</span>
                 </div>
                 <input
                   type="range" min={0} max={0.99} step={0.01}
-                  value={myMomentum}
-                  onChange={e => setMyMomentum(parseFloat(e.target.value))}
+                  value={soloMomentum}
+                  onChange={e => setSoloMomentum(parseFloat(e.target.value))}
                   disabled={soloRunning}
                   style={{ width: '100%', accentColor: '#6366f1' }}
                 />
@@ -306,29 +307,46 @@ export default function TeamPage() {
 
               {/* 솔로 결과 표시 */}
               {soloResults && !soloRunning && (
-                <div className="card" style={{ padding: 14, marginTop: 10 }}>
-                  <h4 style={{ fontSize: 13, marginBottom: 8 }}>{'\uD83C\uDFC1'} 솔로 연습 결과</h4>
+                <div style={{
+                  padding: 12, marginTop: 8,
+                  background: 'rgba(99,102,241,0.06)', borderRadius: 8,
+                  border: '1px solid rgba(99,102,241,0.15)',
+                }}>
+                  <h4 style={{ fontSize: 12, marginBottom: 6 }}>{'\uD83C\uDFC1'} 솔로 결과</h4>
                   {soloResults.map((r, i) => (
-                    <div key={i} style={{ fontSize: 12, padding: '4px 0', display: 'flex', justifyContent: 'space-between' }}>
+                    <div key={i} style={{ fontSize: 11, padding: '3px 0', display: 'flex', justifyContent: 'space-between' }}>
                       <span style={{ color: r.status === 'converged' ? 'var(--success)' : r.status === 'escaped' ? 'var(--danger)' : 'var(--warning)' }}>
-                        {r.status === 'converged' ? '\uD83C\uDFC1 수렴!' : r.status === 'escaped' ? '\uD83D\uDCA5 발산' : '\uD83C\uDFD4\uFE0F 로컬 미니마'}
+                        {r.status === 'converged' ? '\uD83C\uDFC1 수렴!' : r.status === 'escaped' ? '\uD83D\uDCA5 발산' : '\uD83C\uDFD4\uFE0F 로컬'}
                       </span>
                       <span style={{ color: 'var(--text-dim)' }}>
                         {r.time ? (r.time / 1000).toFixed(1) + 's' : '-'} | Loss: {r.finalLoss?.toFixed(3) || '?'}
                       </span>
                     </div>
                   ))}
-                  <button
-                    onClick={startSolo}
-                    style={{
-                      width: '100%', padding: 8, marginTop: 8,
-                      background: 'rgba(99,102,241,0.2)', border: '1px solid rgba(99,102,241,0.4)',
-                      borderRadius: 'var(--radius)', color: '#a5b4fc', fontWeight: 600,
-                      fontSize: 12, cursor: 'pointer',
-                    }}
-                  >
-                    {'\uD83D\uDD04'} 같은 맵 다시 도전
-                  </button>
+                  <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                    <button
+                      onClick={startSolo}
+                      style={{
+                        flex: 1, padding: 7,
+                        background: 'rgba(99,102,241,0.2)', border: '1px solid rgba(99,102,241,0.4)',
+                        borderRadius: 'var(--radius)', color: '#a5b4fc', fontWeight: 600,
+                        fontSize: 11, cursor: 'pointer',
+                      }}
+                    >
+                      {'\uD83D\uDD04'} 같은 맵 다시
+                    </button>
+                    <button
+                      onClick={() => { setSoloResults(null); }}
+                      style={{
+                        flex: 1, padding: 7,
+                        background: 'rgba(168,85,247,0.15)', border: '1px solid rgba(168,85,247,0.3)',
+                        borderRadius: 'var(--radius)', color: '#c084fc', fontWeight: 600,
+                        fontSize: 11, cursor: 'pointer',
+                      }}
+                    >
+                      {'\uD83D\uDDFA\uFE0F'} 다른 맵 선택
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -495,8 +513,8 @@ export default function TeamPage() {
         )}
       </div>
 
-      {/* 우측 3D 씬 (65%) */}
-      <div style={{ flex: 1 }}>
+      {/* 우측 3D 씬 */}
+      <div style={{ flex: 1, minHeight: 500 }}>
         <GradientRaceScene />
       </div>
 

@@ -1,36 +1,36 @@
 import { GLOBAL_MINIMA, MAP_LEVELS, gradientByLevel, lossFunctionByLevel } from './lossFunction.js';
 
 export const START_POSITIONS = {
-    1: { x: -7, z: -7 },
-    2: { x: -6, z: -5 },
-    3: { x: -6, z: -4 },
-    4: { x: 5, z: 5 },
-    5: { x: -7, z: -7 },
-    6: { x: 0, z: 5 },
-    7: { x: 6, z: 6 },
-    8: { x: 0, z: 0 },
+    1: { x: -5, z: -5 },   // 글로벌(0,0)까지 거리 ~7 — 입문: 가깝고 쉬움
+    2: { x: -6, z: -4 },   // 글로벌(0,2)까지 거리 ~8 — 초급: 적당한 거리
+    3: { x: -7, z: -5 },   // 글로벌(1,2)까지 거리 ~10 — 중급: 로컬 미니마 경유
+    4: { x: 7, z: 7 },     // 글로벌(0,-3)까지 거리 ~13 — 고급: 계곡 진동
+    5: { x: -8, z: -8 },   // 글로벌(1,1)까지 거리 ~13 — 마스터: 함정 미로
+    6: { x: 6, z: 6 },     // 글로벌(-3,0)까지 거리 ~11 — 쌍봉 능선
+    7: { x: 8, z: 8 },     // 글로벌(0,0)까지 거리 ~11 — 나선 외곽
+    8: { x: 5, z: 5 },     // 글로벌(-3,-3)까지 거리 ~11 — 평원→절벽
 };
 
 export const SPEED_SCALE = {
-    1: 0.3,
-    2: 0.25,
-    3: 0.2,
-    4: 0.2,
-    5: 0.15,
-    6: 0.2,
-    7: 0.18,
+    1: 0.4,
+    2: 0.35,
+    3: 0.25,
+    4: 0.22,
+    5: 0.18,
+    6: 0.22,
+    7: 0.2,
     8: 0.2,
 };
 
 export const CONVERGE_TRAIL = {
-    1: 200,
-    2: 300,
-    3: 400,
-    4: 400,
-    5: 500,
-    6: 350,
-    7: 450,
-    8: 500,
+    1: 100,
+    2: 150,
+    3: 200,
+    4: 250,
+    5: 300,
+    6: 200,
+    7: 300,
+    8: 350,
 };
 
 export const MAP_BOUNDARY = {
@@ -47,7 +47,7 @@ export const MAP_BOUNDARY = {
 export const CONVERGE_SPEED = 0.0005;
 export const VEL_CLAMP = 5;
 export const MAX_TRAIL_POINTS = 300;
-export const RACE_TIMEOUT_MS = 30000;
+export const RACE_TIMEOUT_MS = 45000;
 
 const VALID_MAP_LEVELS = new Set(MAP_LEVELS.map((map) => map.level));
 const RACE_STATUS_PRIORITY = {
