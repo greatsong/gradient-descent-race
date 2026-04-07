@@ -159,7 +159,7 @@ export default function TeacherApp() {
     setMapLevel(level);
     socket.emit('select_map', { mapLevel: level });
   };
-  const goToParamSet = () => socket.emit('call_ready'); // phase_changed -> param_set
+  const goToParamSet = () => socket.emit('go_to_param_set');
   const startRace = () => socket.emit('start_race', { mapLevel });
   const stopRace = () => socket.emit('stop_race');
   const nextRound = () => socket.emit('select_map', { mapLevel }); // -> map_select

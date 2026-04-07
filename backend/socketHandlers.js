@@ -131,7 +131,7 @@ function calculateCumulativeStandings(room) {
 
   return Object.values(pointsMap)
     .sort((a, b) => b.totalPoints - a.totalPoints)
-    .map((entry, i) => ({ ...entry, finalRank: i + 1 }));
+    .map((entry, i) => ({ ...entry, rank: i + 1 }));
 }
 
 // ═══════════════════════════════════════════════
@@ -290,6 +290,22 @@ export function setupSocketHandlers(io, db) {
       });
 
       console.log(`🗺️ 교사 맵 선택: Level ${level} 세션 [${currentSession}]`);
+    }));
+
+    // ──────────────────────────────
+    // ▸ 교사: 파라미터 세팅 시간 (map_select → param_set)
+    // ──────────────────────────────
+    socket.on('go_to_param_set', safeHandler('go_to_param_set', () => {
+      if (!currentSession) return;
+      const room = rooms.get(currentSession);
+      if (!room || !isTeacher(socket.id, currentSession)) return;
+
+      room.racePhase = 'param_set';
+      io.to(sessionRoom(currentSession)).emit('phase_changed', {
+        phase: 'param_set',
+        mapLevel: room.mapLevel,
+      });
+      console.log(`⚙️ 파라미터 세팅 시간! 세션 [${currentSession}]`);
     }));
 
     // ──────────────────────────────
