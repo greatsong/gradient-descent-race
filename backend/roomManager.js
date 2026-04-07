@@ -22,21 +22,23 @@ export function createRoom(sessionId) {
     teams: new Map(),        // teamId (DB PK) -> teamInfo
     teacherId: null,         // 교사 socketId
     raceBalls: {},           // teamId -> ball state
-    racePhase: 'setup',      // setup | preparing | racing | stageResult | finished
+    racePhase: 'lobby',      // lobby | ready_call | map_select | param_set | countdown | racing | results | final
     mapLevel: 2,
-    raceMode: 'competition', // competition | practice
     raceResults: [],
     raceFinished: {},
     raceStartTime: null,
     raceInterval: null,
     countdownInterval: null,
-    racePaused: false,
-    // GP state
-    gpActive: false,
-    gpStage: 0,
-    gpStageResults: [[], [], []],
-    gpFinalResults: [],
-    gpCountdown: 0,
+
+    // 라운드 관리
+    roundNumber: 0,
+    roundResults: [],        // 라운드별 결과 배열: [{ roundNumber, mapLevel, results }]
+
+    // 레디 관리
+    readyTeams: new Set(),   // 레디 확인한 teamId 집합
+
+    // 솔로 연습
+    soloRaces: new Map(),    // socketId -> { interval, ball, teamId, mapLevel, startTime }
   };
   rooms.set(sessionId, room);
   return room;
@@ -71,6 +73,7 @@ export function removeTeamFromRoom(sessionId, teamId) {
   if (deleted) {
     delete room.raceBalls[teamId];
     delete room.raceFinished[teamId];
+    room.readyTeams.delete(teamId);
   }
   return deleted;
 }
@@ -93,6 +96,50 @@ export function findTeamBySocket(sessionId, socketId) {
 export function isTeacher(socketId, sessionId) {
   const room = rooms.get(sessionId);
   return room && room.teacherId === socketId;
+}
+
+// ── 레디 관련 헬퍼 ──
+
+/**
+ * 팀 레디 설정
+ */
+export function setReady(sessionId, teamId) {
+  const room = rooms.get(sessionId);
+  if (!room) return;
+  room.readyTeams.add(teamId);
+}
+
+/**
+ * 모든 팀 레디 여부
+ */
+export function areAllReady(sessionId) {
+  const room = rooms.get(sessionId);
+  if (!room || room.teams.size === 0) return false;
+  for (const [teamId] of room.teams) {
+    if (!room.readyTeams.has(teamId)) return false;
+  }
+  return true;
+}
+
+/**
+ * 레디 상태 조회
+ */
+export function getReadyStatus(sessionId) {
+  const room = rooms.get(sessionId);
+  if (!room) return { readyTeams: [], totalTeams: 0 };
+  return {
+    readyTeams: [...room.readyTeams],
+    totalTeams: room.teams.size,
+  };
+}
+
+/**
+ * 레디 초기화
+ */
+export function clearReady(sessionId) {
+  const room = rooms.get(sessionId);
+  if (!room) return;
+  room.readyTeams.clear();
 }
 
 /**
@@ -120,13 +167,10 @@ export function getRoomState(sessionId) {
     racePhase: room.racePhase,
     raceBalls: room.raceBalls,
     mapLevel: room.mapLevel,
-    raceMode: room.raceMode,
     results: room.raceResults,
-    gpActive: room.gpActive,
-    gpStage: room.gpStage,
-    gpStageResults: room.gpStageResults,
-    gpFinalResults: room.gpFinalResults,
-    gpCountdown: room.gpCountdown,
+    roundNumber: room.roundNumber,
+    roundResults: room.roundResults,
+    readyTeams: [...room.readyTeams],
   };
 }
 
@@ -149,6 +193,7 @@ export function pruneDisconnectedTeams(room, activeSocketIds) {
     room.teams.delete(teamId);
     delete room.raceBalls[teamId];
     delete room.raceFinished[teamId];
+    room.readyTeams.delete(teamId);
     changed = true;
   }
   return changed;
@@ -162,6 +207,11 @@ export function cleanupRoom(sessionId) {
   if (!room) return;
   if (room.raceInterval) { clearInterval(room.raceInterval); room.raceInterval = null; }
   if (room.countdownInterval) { clearInterval(room.countdownInterval); room.countdownInterval = null; }
+  // 솔로 레이스 정리
+  for (const [, solo] of room.soloRaces) {
+    if (solo.interval) clearInterval(solo.interval);
+  }
+  room.soloRaces.clear();
   rooms.delete(sessionId);
 }
 

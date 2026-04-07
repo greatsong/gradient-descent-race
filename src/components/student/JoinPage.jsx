@@ -12,7 +12,7 @@ export default function JoinPage() {
   const [sessionCode, setSessionCode] = useState('');
   const [teamName, setTeamName] = useState('');
   const [members, setMembers] = useState('');
-  const [step, setStep] = useState(1); // 1=code, 2=team info
+  const [step, setStep] = useState(1);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [sessionData, setSessionData] = useState(null);
@@ -55,17 +55,23 @@ export default function JoinPage() {
   };
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, #0a0a1a 0%, #1a1030 100%)', padding: 20 }}>
+    <div style={{
+      minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
+      background: 'linear-gradient(135deg, #0a0a1a 0%, #1a1030 100%)', padding: 20,
+    }}>
       <div className="card" style={{ maxWidth: 440, width: '100%' }}>
         <h1 style={{ textAlign: 'center', marginBottom: 8, fontSize: 28 }}>
-          <span role="img" aria-label="flag">{'🏁'}</span> 경사하강법 레이스
+          {'\uD83C\uDFC1'} 경사하강법 레이스
         </h1>
         <p style={{ textAlign: 'center', color: 'var(--text-dim)', marginBottom: 24, fontSize: 14 }}>
           학습률과 모멘텀을 조절하여 손실 함수의 최솟값을 찾아라!
         </p>
 
         {error && (
-          <div style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, padding: '10px 14px', marginBottom: 16, color: '#fca5a5', fontSize: 13 }}>
+          <div style={{
+            background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)',
+            borderRadius: 8, padding: '10px 14px', marginBottom: 16, color: '#fca5a5', fontSize: 13,
+          }}>
             {error}
           </div>
         )}
@@ -81,13 +87,21 @@ export default function JoinPage() {
               maxLength={10}
               onKeyDown={e => e.key === 'Enter' && checkSession()}
             />
-            <button className="btn-primary" onClick={checkSession} disabled={loading || !sessionCode.trim()} style={{ width: '100%', padding: 14, fontSize: 16 }}>
+            <button
+              className="btn-primary"
+              onClick={checkSession}
+              disabled={loading || !sessionCode.trim()}
+              style={{ width: '100%', padding: 14, fontSize: 16 }}
+            >
               {loading ? '확인 중...' : '참여하기'}
             </button>
           </>
         ) : (
           <>
-            <div style={{ background: 'rgba(99,102,241,0.1)', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#a5b4fc' }}>
+            <div style={{
+              background: 'rgba(99,102,241,0.1)', borderRadius: 8, padding: '10px 14px',
+              marginBottom: 16, fontSize: 13, color: '#a5b4fc',
+            }}>
               세션: {sessionCode} {'\u2022'} {sessionData?.teams?.length || 0}팀 참여 중
             </div>
             <label style={{ display: 'block', marginBottom: 6, fontSize: 13, color: 'var(--text-dim)' }}>팀 이름</label>
@@ -104,17 +118,30 @@ export default function JoinPage() {
               placeholder="예: 김철수, 이영희, 박민수"
               style={{ width: '100%', marginBottom: 16 }}
             />
-            <button className="btn-primary" onClick={joinTeam} disabled={loading || !teamName.trim()} style={{ width: '100%', padding: 14, fontSize: 16 }}>
+            <button
+              className="btn-primary"
+              onClick={joinTeam}
+              disabled={loading || !teamName.trim()}
+              style={{ width: '100%', padding: 14, fontSize: 16 }}
+            >
               {loading ? '등록 중...' : '팀 등록 & 입장'}
             </button>
-            <button onClick={() => setStep(1)} style={{ width: '100%', marginTop: 8, background: 'transparent', color: 'var(--text-dim)', fontSize: 13, border: 'none', cursor: 'pointer' }}>
+            <button
+              onClick={() => setStep(1)}
+              style={{
+                width: '100%', marginTop: 8, background: 'transparent',
+                color: 'var(--text-dim)', fontSize: 13, border: 'none', cursor: 'pointer',
+              }}
+            >
               {'\u2190'} 세션 코드 다시 입력
             </button>
           </>
         )}
 
         <div style={{ textAlign: 'center', marginTop: 20 }}>
-          <a href="/teacher" style={{ color: 'var(--text-dim)', fontSize: 12, textDecoration: 'none' }}>교사용 대시보드 {'\u2192'}</a>
+          <a href="/teacher" style={{ color: 'var(--text-dim)', fontSize: 12, textDecoration: 'none' }}>
+            교사용 대시보드 {'\u2192'}
+          </a>
         </div>
       </div>
     </div>

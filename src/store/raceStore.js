@@ -8,56 +8,63 @@ const useRaceStore = create(
       myLearningRate: 0.1,
       myMomentum: 0.9,
 
-      // 실시간 상태
-      racePhase: 'setup', // setup | preparing | racing | stageResult | finished
+      // 게임 흐름 상태
+      phase: 'lobby', // lobby | ready_call | map_select | param_set | countdown | racing | results | final
       mapLevel: 1,
       teams: {},
       balls: {},
       results: [],
       myTeamId: null,
-      raceMode: 'competition', // solo | competition
 
-      // GP 상태
-      gpActive: false,
-      gpStage: 0,
-      stageResults: [[], [], []],
-      gpFinalResults: [],
-      gpCountdown: 0,
-      racePaused: false,
+      // 레디 상태
+      readyTeams: [],
+      totalTeams: 0,
+
+      // 라운드 시스템
+      roundNumber: 0,
+      roundResults: [],
+      cumulativeStandings: [],
+
+      // 카운트다운
+      countdownSeconds: 0,
+
+      // 솔로 모드
+      soloMode: false,
+      soloBalls: {},
+      soloMapLevel: 1,
 
       // 액션
       setMyLearningRate: (v) => set({ myLearningRate: v }),
       setMyMomentum: (v) => set({ myMomentum: v }),
-      setRacePhase: (phase) => set({ racePhase: phase }),
+      setPhase: (phase) => set({ phase }),
       setMapLevel: (level) => set({ mapLevel: level }),
       setTeams: (teams) => set({ teams }),
       updateBalls: (balls) => set({ balls }),
       setResults: (results) => set({ results }),
       setMyTeamId: (id) => set({ myTeamId: id }),
-      setRaceMode: (mode) => set({ raceMode: mode }),
-
-      setGpActive: (v) => set({ gpActive: v }),
-      setGpStage: (stage) => set({ gpStage: stage }),
-      setGpCountdown: (v) => set({ gpCountdown: v }),
-      setRacePaused: (v) => set({ racePaused: v }),
-      addStageResult: (stageIdx, result) => set((state) => {
-        const newStageResults = [...state.stageResults];
-        newStageResults[stageIdx] = result;
-        return { stageResults: newStageResults };
-      }),
-      setGpFinalResults: (results) => set({ gpFinalResults: results }),
+      setReadyTeams: (readyTeams) => set({ readyTeams }),
+      setTotalTeams: (totalTeams) => set({ totalTeams }),
+      setRoundNumber: (roundNumber) => set({ roundNumber }),
+      setRoundResults: (roundResults) => set({ roundResults }),
+      setCumulativeStandings: (cumulativeStandings) => set({ cumulativeStandings }),
+      setCountdownSeconds: (countdownSeconds) => set({ countdownSeconds }),
+      setSoloMode: (soloMode) => set({ soloMode }),
+      setSoloBalls: (soloBalls) => set({ soloBalls }),
+      setSoloMapLevel: (level) => set({ soloMapLevel: level }),
 
       reset: () => set({
-        racePhase: 'setup',
+        phase: 'lobby',
         teams: {},
         balls: {},
         results: [],
-        gpActive: false,
-        gpStage: 0,
-        stageResults: [[], [], []],
-        gpFinalResults: [],
-        gpCountdown: 0,
-        racePaused: false,
+        readyTeams: [],
+        totalTeams: 0,
+        roundNumber: 0,
+        roundResults: [],
+        cumulativeStandings: [],
+        countdownSeconds: 0,
+        soloMode: false,
+        soloBalls: {},
       }),
     }),
     {

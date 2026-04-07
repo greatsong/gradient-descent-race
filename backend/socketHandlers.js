@@ -8,6 +8,10 @@ import {
   getRoomState,
   broadcastRoomUpdate,
   cleanupRoom,
+  setReady,
+  areAllReady,
+  getReadyStatus,
+  clearReady,
   sessionRoom,
   teacherRoom,
 } from './roomManager.js';
@@ -24,15 +28,8 @@ import {
   advanceRaceBall,
 } from './raceEngine.js';
 
-// ── GP 스테이지 설정 ──
-const GP_STAGES = [
-  { stage: 1, mapLevel: 1 }, // 초급
-  { stage: 2, mapLevel: 2 }, // 중급
-  { stage: 3, mapLevel: 3 }, // 고급
-];
-const GP_COUNTDOWN_SECONDS = 5;
-
 const MAX_TEAMS_PER_SESSION = 50;
+const COUNTDOWN_SECONDS = 3;
 
 // ── 유틸리티 ──
 
@@ -68,6 +65,75 @@ function getInsertResultStmt(db) {
   return stmtInsertResult;
 }
 
+/**
+ * 팀 Map을 직렬화 (클라이언트 전송용 plain object)
+ */
+function serializeTeams(room) {
+  const result = {};
+  for (const [teamId, team] of room.teams) {
+    result[teamId] = {
+      id: team.id,
+      name: team.name,
+      members: team.members,
+      color: team.color,
+      learningRate: team.learningRate,
+      momentum: team.momentum,
+      paramsConfirmed: team.paramsConfirmed,
+    };
+  }
+  return result;
+}
+
+/**
+ * 방의 타이머 정리
+ */
+function clearRoomTimers(room) {
+  if (room.raceInterval) { clearInterval(room.raceInterval); room.raceInterval = null; }
+  if (room.countdownInterval) { clearInterval(room.countdownInterval); room.countdownInterval = null; }
+}
+
+/**
+ * 누적 순위 계산 (1등=N점, 2등=N-1점, ...)
+ */
+function calculateCumulativeStandings(room) {
+  const pointsMap = {}; // teamId -> { teamId, teamName, color, totalPoints, roundCount, rounds }
+
+  for (const round of room.roundResults) {
+    const totalTeams = round.results.length;
+    for (const res of round.results) {
+      if (!pointsMap[res.teamId]) {
+        const team = room.teams.get(Number(res.teamId) || res.teamId);
+        pointsMap[res.teamId] = {
+          teamId: res.teamId,
+          teamName: res.teamName,
+          color: team?.color || '#888',
+          totalPoints: 0,
+          roundCount: 0,
+          rounds: [],
+        };
+      }
+      // 수렴한 팀만 점수 부여
+      const points = res.status === 'converged'
+        ? Math.max(1, totalTeams - res.rank + 1)
+        : 0;
+      pointsMap[res.teamId].totalPoints += points;
+      pointsMap[res.teamId].roundCount++;
+      pointsMap[res.teamId].rounds.push({
+        roundNumber: round.roundNumber,
+        mapLevel: round.mapLevel,
+        rank: res.rank,
+        points,
+        status: res.status,
+        time: res.time,
+      });
+    }
+  }
+
+  return Object.values(pointsMap)
+    .sort((a, b) => b.totalPoints - a.totalPoints)
+    .map((entry, i) => ({ ...entry, finalRank: i + 1 }));
+}
+
 // ═══════════════════════════════════════════════
 // ▸ 메인 핸들러
 // ═══════════════════════════════════════════════
@@ -99,7 +165,7 @@ export function setupSocketHandlers(io, db) {
     }));
 
     // ──────────────────────────────
-    // ▸ 팀 입장
+    // ▸ 팀(학생) 입장
     // ──────────────────────────────
     socket.on('team:join', safeHandler('team:join', (payload) => {
       const { sessionId, teamId, teamName, members, color } = payload;
@@ -120,9 +186,9 @@ export function setupSocketHandlers(io, db) {
 
       socket.join(sessionRoom(sessionId));
 
-      // 이미 있는 팀이면 socketId만 갱신 (재접속)
       const room = getRoom(sessionId);
       if (room.teams.has(teamId)) {
+        // 재접속: socketId 갱신
         const existing = room.teams.get(teamId);
         existing.socketId = socket.id;
         console.log(`🔄 팀 [${existing.name}] 재접속 → 세션 [${sessionId}]`);
@@ -137,26 +203,99 @@ export function setupSocketHandlers(io, db) {
       }
 
       // 재접속 시 레이스 데이터 복구
-      if (room.raceBalls[teamId] && (room.racePhase === 'racing' || room.racePhase === 'preparing')) {
+      if (room.raceBalls[teamId] && room.racePhase === 'racing') {
         socket.emit('race_tick', { balls: room.raceBalls });
       }
 
       // 전체 상태 전송
       socket.emit('room_state', getRoomState(sessionId));
-      broadcastRoomUpdate(io, sessionId);
 
-      // 교사에게 팀 입장 알림
-      io.to(teacherRoom(sessionId)).emit('team_joined', {
+      // 교사 + 전체에게 팀 입장 알림
+      const teamInfo = room.teams.get(teamId);
+      io.to(sessionRoom(sessionId)).emit('team_joined', {
         teamId,
-        teamName: room.teams.get(teamId).name,
+        teamName: teamInfo.name,
+        color: teamInfo.color,
         teamCount: room.teams.size,
       });
+
+      broadcastRoomUpdate(io, sessionId);
     }));
 
     // ──────────────────────────────
-    // ▸ 파라미터 설정 (학습률 + 모멘텀)
+    // ▸ 교사: "준비하세요!" 호출
     // ──────────────────────────────
-    socket.on('set_race_params', safeHandler('set_race_params', (payload) => {
+    socket.on('call_ready', safeHandler('call_ready', () => {
+      if (!currentSession) return;
+      const room = rooms.get(currentSession);
+      if (!room || !isTeacher(socket.id, currentSession)) return;
+
+      clearReady(currentSession);
+      room.racePhase = 'ready_call';
+
+      io.to(sessionRoom(currentSession)).emit('phase_changed', {
+        phase: 'ready_call',
+        mapLevel: room.mapLevel,
+      });
+
+      io.to(sessionRoom(currentSession)).emit('ready_update', getReadyStatus(currentSession));
+
+      console.log(`📢 교사: "준비하세요!" → 세션 [${currentSession}]`);
+    }));
+
+    // ──────────────────────────────
+    // ▸ 학생: 레디 확인
+    // ──────────────────────────────
+    socket.on('set_ready', safeHandler('set_ready', () => {
+      if (!currentSession || !currentTeamId) return;
+      const room = rooms.get(currentSession);
+      if (!room) return;
+
+      setReady(currentSession, currentTeamId);
+
+      const status = getReadyStatus(currentSession);
+      io.to(sessionRoom(currentSession)).emit('ready_update', status);
+
+      const team = room.teams.get(currentTeamId);
+      console.log(`✅ 팀 [${team?.name}] 레디! (${status.readyTeams.length}/${status.totalTeams})`);
+
+      // 모두 레디면 교사에게 알림
+      if (areAllReady(currentSession)) {
+        io.to(teacherRoom(currentSession)).emit('all_ready', { message: '모든 팀이 준비 완료!' });
+      }
+    }));
+
+    // ──────────────────────────────
+    // ▸ 교사: 맵 선택
+    // ──────────────────────────────
+    socket.on('select_map', safeHandler('select_map', (payload) => {
+      if (!currentSession) return;
+      const room = rooms.get(currentSession);
+      if (!room || !isTeacher(socket.id, currentSession)) return;
+
+      if (room.racePhase === 'racing') {
+        socket.emit('error_msg', { message: '레이스 중에는 맵을 변경할 수 없습니다.' });
+        return;
+      }
+
+      const level = normalizeMapLevel(payload?.mapLevel ?? payload?.level, room.mapLevel);
+      room.mapLevel = level;
+      room.racePhase = 'map_select';
+
+      // 모든 클라이언트에게 맵 변경 알림 (교사 화면 포함)
+      io.to(sessionRoom(currentSession)).emit('map_changed', { mapLevel: level });
+      io.to(sessionRoom(currentSession)).emit('phase_changed', {
+        phase: 'map_select',
+        mapLevel: level,
+      });
+
+      console.log(`🗺️ 교사 맵 선택: Level ${level} 세션 [${currentSession}]`);
+    }));
+
+    // ──────────────────────────────
+    // ▸ 학생: 파라미터 설정 (LR + 모멘텀)
+    // ──────────────────────────────
+    socket.on('set_params', safeHandler('set_params', (payload) => {
       if (!currentSession || !currentTeamId) return;
       const room = rooms.get(currentSession);
       if (!room) return;
@@ -164,7 +303,7 @@ export function setupSocketHandlers(io, db) {
       const team = room.teams.get(currentTeamId);
       if (!team) return;
 
-      const learningRate = clampLearningRate(payload.learningRate, team.learningRate);
+      const learningRate = clampLearningRate(payload.learningRate ?? payload.lr, team.learningRate);
       const momentum = clampMomentum(payload.momentum, team.momentum);
 
       team.learningRate = learningRate;
@@ -175,52 +314,68 @@ export function setupSocketHandlers(io, db) {
 
       // 레이스 진행 중이면 공의 파라미터도 즉시 업데이트
       const ball = room.raceBalls[currentTeamId];
-      if (ball && (ball.status === 'racing' || ball.status === 'preparing')) {
+      if (ball && ball.status === 'racing') {
         ball.lr = learningRate;
         ball.momentum = momentum;
       }
 
+      // 파라미터 변경 브로드캐스트
+      io.to(sessionRoom(currentSession)).emit('race_teams_updated', {
+        teams: serializeTeams(room),
+      });
+    }));
+
+    // 이전 이벤트명 호환
+    socket.on('set_race_params', safeHandler('set_race_params', (payload) => {
+      socket.emit('set_params', payload);
+      // 직접 처리
+      if (!currentSession || !currentTeamId) return;
+      const room = rooms.get(currentSession);
+      if (!room) return;
+      const team = room.teams.get(currentTeamId);
+      if (!team) return;
+
+      const learningRate = clampLearningRate(payload.learningRate ?? payload.lr, team.learningRate);
+      const momentum = clampMomentum(payload.momentum, team.momentum);
+      team.learningRate = learningRate;
+      team.momentum = momentum;
+      team.paramsConfirmed = true;
+
+      const ball = room.raceBalls[currentTeamId];
+      if (ball && ball.status === 'racing') {
+        ball.lr = learningRate;
+        ball.momentum = momentum;
+      }
       io.to(sessionRoom(currentSession)).emit('race_teams_updated', {
         teams: serializeTeams(room),
       });
     }));
 
     // ──────────────────────────────
-    // ▸ 교사: 맵 선택
+    // ▸ 교사: 레이스 시작 (카운트다운 → 레이스)
     // ──────────────────────────────
-    socket.on('teacher_set_map', safeHandler('teacher_set_map', (payload) => {
-      if (!currentSession) return;
-      const room = rooms.get(currentSession);
-      if (!room || !isTeacher(socket.id, currentSession)) return;
-
-      if (room.racePhase === 'racing') {
-        socket.emit('error_msg', { message: '레이스 중에는 맵을 변경할 수 없습니다.' });
-        return;
-      }
-
-      const level = normalizeMapLevel(payload?.level, room.mapLevel);
-      room.mapLevel = level;
-
-      io.to(sessionRoom(currentSession)).emit('map_selected', { level });
-      console.log(`🗺️ 교사 맵 선택: Level ${level} 세션 [${currentSession}]`);
-    }));
-
-    // ──────────────────────────────
-    // ▸ 교사: 레이스 준비 (공 배치)
-    // ──────────────────────────────
-    socket.on('prepare_race', safeHandler('prepare_race', (payload) => {
+    socket.on('start_race', safeHandler('start_race', () => {
       if (!currentSession) return;
       const room = rooms.get(currentSession);
       if (!room || !isTeacher(socket.id, currentSession)) return;
       if (room.teams.size === 0) return;
 
-      const level = normalizeMapLevel(payload?.level, room.mapLevel);
+      const level = normalizeMapLevel(room.mapLevel, 2);
       room.mapLevel = level;
-      room.racePhase = 'preparing';
+
+      // 라운드 번호 증가
+      room.roundNumber++;
+
+      console.log(`🏁 레이스 시작 요청! 세션 [${currentSession}] 라운드 ${room.roundNumber} 맵=${level}`);
+
+      // 카운트다운 시작
+      room.racePhase = 'countdown';
+      clearRoomTimers(room);
+
+      // 공 초기화 (카운트다운 동안 미리 준비)
       room.raceBalls = {};
       room.raceFinished = {};
       room.raceResults = [];
-      room.gpCountdown = 0;
 
       for (const [teamId, team] of room.teams) {
         const position = getRandomizedStartPosition(level);
@@ -234,59 +389,30 @@ export function setupSocketHandlers(io, db) {
         });
       }
 
-      io.to(sessionRoom(currentSession)).emit('race_prepare', {
-        balls: room.raceBalls,
-        teams: serializeTeams(room),
+      io.to(sessionRoom(currentSession)).emit('phase_changed', {
+        phase: 'countdown',
         mapLevel: level,
+        roundNumber: room.roundNumber,
       });
-      console.log(`🎯 레이스 준비! 세션 [${currentSession}] 맵=${level} — ${room.teams.size}팀`);
-    }));
 
-    // ──────────────────────────────
-    // ▸ 교사: 레이스 시작 (단일 맵)
-    // ──────────────────────────────
-    socket.on('start_race', safeHandler('start_race', (payload) => {
-      if (!currentSession) return;
-      const room = rooms.get(currentSession);
-      if (!room || !isTeacher(socket.id, currentSession)) return;
-      if (room.teams.size === 0) return;
+      let countdown = COUNTDOWN_SECONDS;
+      io.to(sessionRoom(currentSession)).emit('countdown', { seconds: countdown });
 
-      room.gpActive = false;
-      room.gpStage = 0;
-      room.gpStageResults = [[], [], []];
-      room.gpFinalResults = [];
-      room.gpCountdown = 0;
+      room.countdownInterval = setInterval(() => {
+        countdown--;
+        if (countdown > 0) {
+          io.to(sessionRoom(currentSession)).emit('countdown', { seconds: countdown });
+        } else {
+          // 카운트다운 종료 → 레이스 시작
+          clearInterval(room.countdownInterval);
+          room.countdownInterval = null;
 
-      const mode = payload?.mode || 'competition';
-      const level = normalizeMapLevel(payload?.level, room.mapLevel);
-      room.raceMode = mode;
+          const r = rooms.get(currentSession);
+          if (!r) return;
 
-      console.log(`🏁 레이스 모드: ${mode} (Level ${level}) 세션 [${currentSession}]`);
-      startStageRace(io, db, currentSession, level);
-    }));
-
-    // ──────────────────────────────
-    // ▸ 교사: Grand Prix 시작
-    // ──────────────────────────────
-    socket.on('start_gp', safeHandler('start_gp', () => {
-      if (!currentSession) return;
-      const room = rooms.get(currentSession);
-      if (!room || !isTeacher(socket.id, currentSession)) return;
-      if (room.teams.size === 0) return;
-
-      room.gpActive = true;
-      room.gpStage = 1;
-      room.gpStageResults = [[], [], []];
-      room.gpFinalResults = [];
-      room.gpCountdown = 0;
-
-      io.to(sessionRoom(currentSession)).emit('gp_started', {
-        totalStages: GP_STAGES.length,
-        currentStage: 1,
-      });
-      console.log(`🏎️🏎️🏎️ Grand Prix 시작! 세션 [${currentSession}] — ${room.teams.size}팀`);
-
-      startStageRace(io, db, currentSession, GP_STAGES[0].mapLevel);
+          startRace(io, db, currentSession);
+        }
+      }, 1000);
     }));
 
     // ──────────────────────────────
@@ -295,14 +421,28 @@ export function setupSocketHandlers(io, db) {
     socket.on('stop_race', safeHandler('stop_race', () => {
       if (!currentSession) return;
       const room = rooms.get(currentSession);
-      if (!room || room.racePhase !== 'racing') return;
+      if (!room) return;
       if (!isTeacher(socket.id, currentSession)) {
         socket.emit('error_msg', { message: '레이스 정지는 교사만 가능합니다.' });
         return;
       }
 
+      // 카운트다운 중이면 취소
+      if (room.racePhase === 'countdown') {
+        clearRoomTimers(room);
+        room.racePhase = 'map_select';
+        room.roundNumber = Math.max(0, room.roundNumber - 1); // 카운트다운 취소 시 라운드 롤백
+        io.to(sessionRoom(currentSession)).emit('phase_changed', {
+          phase: 'map_select',
+          mapLevel: room.mapLevel,
+        });
+        console.log(`⏹️ 카운트다운 취소! 세션 [${currentSession}]`);
+        return;
+      }
+
+      if (room.racePhase !== 'racing') return;
+
       // 아직 달리는 공 강제 종료
-      room.raceFinished = room.raceFinished || {};
       for (const [teamId, ball] of Object.entries(room.raceBalls)) {
         if (ball.status !== 'racing') continue;
         const outcome = inspectRaceBall(ball, room.mapLevel, Number.POSITIVE_INFINITY) || {
@@ -325,77 +465,228 @@ export function setupSocketHandlers(io, db) {
         });
       }
 
-      if (room.raceInterval) { clearInterval(room.raceInterval); room.raceInterval = null; }
-      room.racePhase = 'finished';
-      room.raceResults = rankRaceResults(Object.values(room.raceFinished));
-
-      io.to(sessionRoom(currentSession)).emit('race_finished', { results: room.raceResults });
-      saveResults(db, currentSession, room);
+      clearRoomTimers(room);
+      finishRace(io, db, currentSession);
       console.log(`🛑 레이스 정지! 세션 [${currentSession}]`);
     }));
 
     // ──────────────────────────────
-    // ▸ 교사: 같은 맵 재도전
+    // ▸ 교사: 최종 완료 (누적 순위)
     // ──────────────────────────────
-    socket.on('retry_same_level', safeHandler('retry_same_level', () => {
+    socket.on('finish_all', safeHandler('finish_all', () => {
+      if (!currentSession) return;
+      const room = rooms.get(currentSession);
+      if (!room || !isTeacher(socket.id, currentSession)) return;
+
+      room.racePhase = 'final';
+      clearRoomTimers(room);
+
+      const standings = calculateCumulativeStandings(room);
+
+      io.to(sessionRoom(currentSession)).emit('phase_changed', { phase: 'final' });
+      io.to(sessionRoom(currentSession)).emit('final_results', { standings });
+
+      console.log(`🏆🏆🏆 최종 완료! 세션 [${currentSession}] ${room.roundResults.length}라운드 종합`);
+    }));
+
+    // ──────────────────────────────
+    // ▸ 교사: 로비로 복귀
+    // ──────────────────────────────
+    socket.on('reset_to_lobby', safeHandler('reset_to_lobby', () => {
       if (!currentSession) return;
       const room = rooms.get(currentSession);
       if (!room || !isTeacher(socket.id, currentSession)) return;
 
       clearRoomTimers(room);
 
-      const level = normalizeMapLevel(room.mapLevel, 2);
-      room.racePhase = 'preparing';
-      room.raceFinished = {};
+      room.racePhase = 'lobby';
       room.raceBalls = {};
+      room.raceFinished = {};
       room.raceResults = [];
-      room.gpCountdown = 0;
+      room.roundNumber = 0;
+      room.roundResults = [];
+      clearReady(currentSession);
 
-      for (const [teamId, team] of room.teams) {
-        const position = getRandomizedStartPosition(level);
-        room.raceBalls[teamId] = createRaceBall({
-          level,
-          x: position.x,
-          z: position.z,
-          lr: team.learningRate || 0.1,
-          momentum: team.momentum || 0.9,
-          status: 'preparing',
-        });
+      // 팀 파라미터 초기화
+      for (const [, team] of room.teams) {
+        team.paramsConfirmed = false;
       }
 
-      io.to(sessionRoom(currentSession)).emit('race_prepare', {
-        balls: room.raceBalls,
-        teams: serializeTeams(room),
-        mapLevel: level,
-      });
-      console.log(`🔁 같은 맵 재도전! 세션 [${currentSession}] 맵=${level}`);
+      io.to(sessionRoom(currentSession)).emit('phase_changed', { phase: 'lobby', mapLevel: room.mapLevel });
+      broadcastRoomUpdate(io, currentSession);
+
+      console.log(`🔄 로비 복귀! 세션 [${currentSession}]`);
     }));
 
     // ──────────────────────────────
-    // ▸ 교사: 레이스 리셋
+    // ▸ 이전 호환: reset_race → reset_to_lobby
     // ──────────────────────────────
     socket.on('reset_race', safeHandler('reset_race', () => {
       if (!currentSession) return;
       const room = rooms.get(currentSession);
-      if (!room || !isTeacher(socket.id, currentSession)) return;
+      if (!room) return;
+      if (!isTeacher(socket.id, currentSession)) return;
 
       clearRoomTimers(room);
-
-      room.racePhase = 'setup';
+      room.racePhase = 'lobby';
       room.raceBalls = {};
       room.raceFinished = {};
       room.raceResults = [];
-      room.raceMode = 'competition';
-      room.gpActive = false;
-      room.gpStage = 0;
-      room.gpStageResults = [[], [], []];
-      room.gpFinalResults = [];
-      room.gpCountdown = 0;
+      room.roundNumber = 0;
+      room.roundResults = [];
+      clearReady(currentSession);
 
-      io.to(sessionRoom(currentSession)).emit('race_reset', {
-        teams: serializeTeams(room),
-      });
+      io.to(sessionRoom(currentSession)).emit('phase_changed', { phase: 'lobby', mapLevel: room.mapLevel });
+      io.to(sessionRoom(currentSession)).emit('race_reset', { teams: serializeTeams(room) });
       console.log(`🔄 레이스 리셋! 세션 [${currentSession}]`);
+    }));
+
+    // ──────────────────────────────
+    // ▸ 이전 호환: teacher_set_map → select_map
+    // ──────────────────────────────
+    socket.on('teacher_set_map', safeHandler('teacher_set_map', (payload) => {
+      if (!currentSession) return;
+      const room = rooms.get(currentSession);
+      if (!room || !isTeacher(socket.id, currentSession)) return;
+      if (room.racePhase === 'racing') {
+        socket.emit('error_msg', { message: '레이스 중에는 맵을 변경할 수 없습니다.' });
+        return;
+      }
+      const level = normalizeMapLevel(payload?.mapLevel ?? payload?.level, room.mapLevel);
+      room.mapLevel = level;
+      io.to(sessionRoom(currentSession)).emit('map_changed', { mapLevel: level });
+    }));
+
+    // ──────────────────────────────
+    // ▸ 솔로 연습 시작
+    // ──────────────────────────────
+    socket.on('start_solo', safeHandler('start_solo', (payload) => {
+      if (!currentSession || !currentTeamId) return;
+      const room = rooms.get(currentSession);
+      if (!room) return;
+
+      // 솔로는 lobby 페이즈에서만 가능
+      if (room.racePhase !== 'lobby') {
+        socket.emit('error_msg', { message: '로비에서만 솔로 연습을 할 수 있습니다.' });
+        return;
+      }
+
+      // 이미 솔로 중이면 중지
+      const existing = room.soloRaces.get(socket.id);
+      if (existing) {
+        clearInterval(existing.interval);
+        room.soloRaces.delete(socket.id);
+      }
+
+      const team = room.teams.get(currentTeamId);
+      if (!team) return;
+
+      const level = normalizeMapLevel(payload?.mapLevel ?? payload?.level, room.mapLevel);
+      const position = getRandomizedStartPosition(level);
+      const ball = createRaceBall({
+        level,
+        x: position.x,
+        z: position.z,
+        lr: team.learningRate || 0.1,
+        momentum: team.momentum || 0.9,
+        status: 'racing',
+      });
+
+      const soloStartTime = Date.now();
+      const soloBalls = { [currentTeamId]: ball };
+
+      // 솔로 시뮬레이션 인터벌
+      const soloInterval = setInterval(() => {
+        if (ball.status !== 'racing') {
+          clearInterval(soloInterval);
+          room.soloRaces.delete(socket.id);
+
+          const elapsed = Date.now() - soloStartTime;
+          const result = createRaceResult({
+            teamId: currentTeamId,
+            teamName: team.name,
+            ball,
+            level,
+            timeMs: elapsed,
+            status: ball.status,
+            lr: team.learningRate,
+            momentum: team.momentum,
+          });
+
+          socket.emit('solo_finished', { results: [{ ...result, rank: 1 }] });
+          return;
+        }
+
+        advanceRaceBall(ball, level);
+
+        const elapsed = Date.now() - soloStartTime;
+        const outcome = inspectRaceBall(ball, level, elapsed);
+        if (outcome) {
+          ball.status = outcome.status;
+        }
+
+        socket.emit('solo_tick', { balls: soloBalls });
+      }, 16);
+
+      room.soloRaces.set(socket.id, {
+        interval: soloInterval,
+        ball,
+        teamId: currentTeamId,
+        mapLevel: level,
+        startTime: soloStartTime,
+      });
+
+      socket.emit('solo_started', {
+        balls: soloBalls,
+        mapLevel: level,
+        teamId: currentTeamId,
+      });
+
+      console.log(`🎮 솔로 연습 시작! 팀 [${team.name}] 맵=${level}`);
+    }));
+
+    // ──────────────────────────────
+    // ▸ 솔로 연습 정지
+    // ──────────────────────────────
+    socket.on('stop_solo', safeHandler('stop_solo', () => {
+      if (!currentSession) return;
+      const room = rooms.get(currentSession);
+      if (!room) return;
+
+      const solo = room.soloRaces.get(socket.id);
+      if (!solo) return;
+
+      clearInterval(solo.interval);
+
+      const team = room.teams.get(solo.teamId);
+      const elapsed = Date.now() - solo.startTime;
+
+      // 정지 시점 결과 생성
+      if (solo.ball.status === 'racing') {
+        const outcome = inspectRaceBall(solo.ball, solo.mapLevel, Number.POSITIVE_INFINITY);
+        if (outcome) {
+          solo.ball.status = outcome.status;
+        } else {
+          solo.ball.status = 'local_minimum';
+        }
+      }
+
+      const result = createRaceResult({
+        teamId: solo.teamId,
+        teamName: team?.name || `Team ${solo.teamId}`,
+        ball: solo.ball,
+        level: solo.mapLevel,
+        timeMs: elapsed,
+        status: solo.ball.status,
+        lr: team?.learningRate || solo.ball.lr,
+        momentum: team?.momentum || solo.ball.momentum,
+      });
+
+      room.soloRaces.delete(socket.id);
+
+      socket.emit('solo_finished', { results: [{ ...result, rank: 1 }] });
+
+      console.log(`⏹️ 솔로 연습 정지! 팀 [${team?.name}]`);
     }));
 
     // ──────────────────────────────
@@ -410,16 +701,22 @@ export function setupSocketHandlers(io, db) {
       const room = rooms.get(currentSession);
       if (!room) return;
 
+      // 솔로 레이스 정리
+      const solo = room.soloRaces.get(socket.id);
+      if (solo) {
+        clearInterval(solo.interval);
+        room.soloRaces.delete(socket.id);
+      }
+
       // 팀 연결 해제 처리
       if (currentTeamId && room.teams.has(currentTeamId)) {
         const team = room.teams.get(currentTeamId);
         console.log(`💫 팀 [${team.name}] 연결 해제 (세션 [${currentSession}])`);
 
-        // 레이스 중이 아니면 팀 제거
-        if (room.racePhase === 'setup') {
+        // lobby에서만 팀 제거 (레이스 중이면 유지)
+        if (room.racePhase === 'lobby') {
           removeTeamFromRoom(currentSession, currentTeamId);
         }
-        // 레이스 중이면 팀 데이터 유지 (재접속 대비)
 
         broadcastRoomUpdate(io, currentSession);
 
@@ -435,7 +732,6 @@ export function setupSocketHandlers(io, db) {
         console.log(`🎓 교사 연결 해제 (세션 [${currentSession}])`);
         room.teacherId = null;
         clearRoomTimers(room);
-        room.gpCountdown = 0;
       }
 
       // 방이 비었으면 정리
@@ -450,87 +746,45 @@ export function setupSocketHandlers(io, db) {
 }
 
 // ═══════════════════════════════════════════════
-// ▸ 내부 헬퍼 함수
+// ▸ 내부 함수: 레이스 실행
 // ═══════════════════════════════════════════════
 
 /**
- * 팀 Map을 직렬화 (클라이언트 전송용 plain object)
+ * 레이스 시작 (카운트다운 완료 후 호출)
  */
-function serializeTeams(room) {
-  const result = {};
-  for (const [teamId, team] of room.teams) {
-    result[teamId] = {
-      id: team.id,
-      name: team.name,
-      members: team.members,
-      color: team.color,
-      learningRate: team.learningRate,
-      momentum: team.momentum,
-      paramsConfirmed: team.paramsConfirmed,
-    };
-  }
-  return result;
-}
-
-/**
- * 방의 타이머 정리
- */
-function clearRoomTimers(room) {
-  if (room.raceInterval) { clearInterval(room.raceInterval); room.raceInterval = null; }
-  if (room.countdownInterval) { clearInterval(room.countdownInterval); room.countdownInterval = null; }
-}
-
-/**
- * 단일 스테이지 레이스 시작 (내부)
- */
-function startStageRace(io, db, sessionId, mapLevel) {
+function startRace(io, db, sessionId) {
   const room = rooms.get(sessionId);
   if (!room) return;
   if (room.teams.size === 0) return;
 
-  const normalizedLevel = normalizeMapLevel(mapLevel, room.mapLevel);
-  room.mapLevel = normalizedLevel;
-  room.raceFinished = {};
-  room.raceResults = [];
-  room.gpCountdown = 0;
+  const level = room.mapLevel;
 
-  // 공 초기화: preparing 단계면 기존 위치 유지, 아니면 새로 배치
-  const preservePositions = room.racePhase === 'preparing' && Object.keys(room.raceBalls).length > 0;
-  const nextBalls = {};
-
-  for (const [teamId, team] of room.teams) {
-    const previousBall = preservePositions ? room.raceBalls[teamId] : null;
-    const position = previousBall
-      ? { x: previousBall.x, z: previousBall.z }
-      : getRandomizedStartPosition(normalizedLevel);
-
-    nextBalls[teamId] = createRaceBall({
-      level: normalizedLevel,
-      x: position.x,
-      z: position.z,
-      lr: team.learningRate,
-      momentum: team.momentum,
-      status: 'racing',
-    });
+  // 공 상태를 racing으로 전환
+  for (const [teamId, ball] of Object.entries(room.raceBalls)) {
+    ball.status = 'racing';
   }
-  room.raceBalls = nextBalls;
 
   room.racePhase = 'racing';
-  room.racePaused = false;
   room.raceStartTime = Date.now();
+  room.raceFinished = {};
+  room.raceResults = [];
 
   const sRoom = sessionRoom(sessionId);
+
+  io.to(sRoom).emit('phase_changed', {
+    phase: 'racing',
+    mapLevel: level,
+    roundNumber: room.roundNumber,
+  });
 
   io.to(sRoom).emit('race_started', {
     balls: room.raceBalls,
     teams: serializeTeams(room),
-    startTime: room.raceStartTime,
-    mapLevel: normalizedLevel,
-    gpStage: room.gpStage || 0,
-    raceMode: room.raceMode || 'competition',
+    mapLevel: level,
+    roundNumber: room.roundNumber,
   });
 
-  console.log(`🏁 스테이지 ${room.gpStage || '-'} 시작! 세션 [${sessionId}] 맵=${normalizedLevel} — ${room.teams.size}팀`);
+  console.log(`🏁 레이스 시작! 세션 [${sessionId}] 라운드 ${room.roundNumber} 맵=${level} — ${room.teams.size}팀`);
 
   // 이전 인터벌 정리
   clearRoomTimers(room);
@@ -544,7 +798,6 @@ function startStageRace(io, db, sessionId, mapLevel) {
       if (r) r.raceInterval = null;
       return;
     }
-    if (r.racePaused) return;
 
     let allDone = true;
 
@@ -557,8 +810,6 @@ function startStageRace(io, db, sessionId, mapLevel) {
 
       advanceRaceBall(ball, r.mapLevel);
 
-      const teamLR = clampLearningRate(team?.learningRate, ball.lr);
-      const teamMom = clampMomentum(team?.momentum, ball.momentum);
       const outcome = inspectRaceBall(ball, r.mapLevel, elapsed);
       if (!outcome) continue;
 
@@ -570,8 +821,8 @@ function startStageRace(io, db, sessionId, mapLevel) {
         level: r.mapLevel,
         timeMs: elapsed,
         status: outcome.status,
-        lr: teamLR,
-        momentum: teamMom,
+        lr: team?.learningRate || ball.lr,
+        momentum: team?.momentum || ball.momentum,
         finalLoss: outcome.reason === 'invalid' ? NaN : ball.loss,
         distToGlobal: outcome.distToGlobal,
       });
@@ -580,17 +831,17 @@ function startStageRace(io, db, sessionId, mapLevel) {
       if (outcome.reason === 'invalid') {
         io.to(sRoom).emit('race_alert', {
           teamId, teamName: team?.name,
-          message: `공이 날아가 버렸어요! 무엇이 너무 커졌을까요? (팀: ${team?.name})`,
+          message: `공이 날아가 버렸어요! (팀: ${team?.name})`,
         });
       } else if (outcome.reason === 'boundary') {
         io.to(sRoom).emit('race_alert', {
           teamId, teamName: team?.name,
-          message: `공이 맵을 벗어났어요! 어떤 파라미터를 조절하면 좋을까요? (팀: ${team?.name})`,
+          message: `공이 맵을 벗어났어요! (팀: ${team?.name})`,
         });
       } else if (outcome.reason === 'timeout' && outcome.status === 'local_minimum') {
         io.to(sRoom).emit('race_alert', {
           teamId, teamName: team?.name,
-          message: `시간 초과! 공이 최솟값에 도달하지 못했어요. (팀: ${team?.name})`,
+          message: `시간 초과! (팀: ${team?.name})`,
         });
       } else if (outcome.reason === 'stopped' && outcome.status === 'local_minimum') {
         io.to(sRoom).emit('race_alert', {
@@ -600,6 +851,7 @@ function startStageRace(io, db, sessionId, mapLevel) {
       }
     }
 
+    // 교사 + 학생 모두에게 tick 전송
     io.to(sRoom).emit('race_tick', { balls: r.raceBalls });
 
     // ── 전체 완료 체크 ──
@@ -609,20 +861,7 @@ function startStageRace(io, db, sessionId, mapLevel) {
     if (finishedTeams >= totalTeams || allDone) {
       clearInterval(r.raceInterval);
       r.raceInterval = null;
-
-      const results = rankRaceResults(Object.values(r.raceFinished));
-      r.raceResults = results;
-
-      // ── GP 모드 ──
-      if (r.gpActive && r.gpStage >= 1 && r.gpStage <= GP_STAGES.length) {
-        handleGPStageComplete(io, db, sessionId, r, results);
-      } else {
-        // ── 일반 레이스 종료 ──
-        r.racePhase = 'finished';
-        io.to(sRoom).emit('race_finished', { results });
-        saveResults(db, sessionId, r);
-        console.log(`🏆 레이스 종료! 세션 [${sessionId}]`);
-      }
+      finishRace(io, db, sessionId);
     }
   }, 16); // ~60fps
 
@@ -630,106 +869,70 @@ function startStageRace(io, db, sessionId, mapLevel) {
 }
 
 /**
- * GP 스테이지 완료 처리
+ * 레이스 종료 처리 (자연 종료 또는 강제 정지)
  */
-function handleGPStageComplete(io, db, sessionId, room, results) {
+function finishRace(io, db, sessionId) {
+  const room = rooms.get(sessionId);
+  if (!room) return;
+
+  clearRoomTimers(room);
+
+  const results = rankRaceResults(Object.values(room.raceFinished));
+  room.raceResults = results;
+  room.racePhase = 'results';
+
+  // 라운드 결과 저장
+  const roundData = {
+    roundNumber: room.roundNumber,
+    mapLevel: room.mapLevel,
+    results: results.map(r => ({
+      teamId: r.teamId,
+      teamName: r.teamName,
+      lr: r.lr,
+      momentum: r.momentum,
+      status: r.status,
+      time: r.time,
+      finalLoss: r.finalLoss,
+      cumulativeLoss: r.cumulativeLoss,
+      rank: r.rank,
+      distToGlobal: r.distToGlobal,
+    })),
+  };
+  room.roundResults.push(roundData);
+
+  // 누적 순위 계산
+  const cumulativeStandings = calculateCumulativeStandings(room);
+
   const sRoom = sessionRoom(sessionId);
-  const stageIdx = room.gpStage - 1;
 
-  if (!room.gpStageResults) room.gpStageResults = [[], [], []];
+  io.to(sRoom).emit('phase_changed', {
+    phase: 'results',
+    mapLevel: room.mapLevel,
+    roundNumber: room.roundNumber,
+  });
 
-  // 포인트 계산: 수렴한 팀만 점수, 순위 역순
-  const totalTeams = room.teams.size;
-  const stagePoints = results.map(res => ({
-    teamId: res.teamId,
-    teamName: res.teamName,
-    points: res.status === 'converged' ? Math.max(0, totalTeams - res.rank + 1) : 0,
-    rank: res.rank,
-    finalLoss: res.finalLoss,
-    cumulativeLoss: res.cumulativeLoss,
-    status: res.status,
-    lr: res.lr,
-    momentum: res.momentum,
-    distToGlobal: res.distToGlobal,
-    time: res.time,
-  }));
-  room.gpStageResults[stageIdx] = stagePoints;
+  io.to(sRoom).emit('race_finished', {
+    results,
+    roundNumber: room.roundNumber,
+    mapLevel: room.mapLevel,
+  });
 
-  io.to(sRoom).emit('gp_stage_complete', {
-    stage: room.gpStage,
-    results: stagePoints,
-    allStageResults: room.gpStageResults,
+  io.to(sRoom).emit('round_results', {
+    roundNumber: room.roundNumber,
+    results: roundData.results,
+    cumulativeStandings,
   });
 
   // DB 저장
-  saveResults(db, sessionId, room, room.gpStage);
+  saveResults(db, sessionId, room);
 
-  console.log(`🏆 GP 스테이지 ${room.gpStage}/${GP_STAGES.length} 종료! 세션 [${sessionId}]`);
-
-  if (room.gpStage < GP_STAGES.length) {
-    // ── 다음 스테이지 카운트다운 ──
-    room.racePhase = 'stageResult';
-    let countdown = GP_COUNTDOWN_SECONDS;
-    room.gpCountdown = countdown;
-
-    io.to(sRoom).emit('gp_countdown', { seconds: countdown, nextStage: room.gpStage + 1 });
-
-    if (room.countdownInterval) { clearInterval(room.countdownInterval); room.countdownInterval = null; }
-    room.countdownInterval = setInterval(() => {
-      countdown--;
-      if (countdown > 0) {
-        room.gpCountdown = countdown;
-        io.to(sRoom).emit('gp_countdown', { seconds: countdown, nextStage: room.gpStage + 1 });
-      } else {
-        const rm = rooms.get(sessionId);
-        if (rm?.countdownInterval) { clearInterval(rm.countdownInterval); rm.countdownInterval = null; }
-        if (!rm || !rm.gpActive) return;
-        rm.gpCountdown = 0;
-        rm.gpStage++;
-        const nextLevel = GP_STAGES[rm.gpStage - 1]?.mapLevel || rm.gpStage;
-        startStageRace(io, db, sessionId, nextLevel);
-      }
-    }, 1000);
-  } else {
-    // ── GP 전체 종료: 종합 결과 ──
-    room.racePhase = 'finished';
-    const combined = {};
-
-    for (let si = 0; si < GP_STAGES.length; si++) {
-      const stageRes = room.gpStageResults[si] || [];
-      for (const res of stageRes) {
-        if (!combined[res.teamId]) {
-          combined[res.teamId] = {
-            teamId: res.teamId,
-            teamName: res.teamName,
-            totalPoints: 0,
-            stageRanks: new Array(GP_STAGES.length).fill(0),
-          };
-        }
-        combined[res.teamId].totalPoints += res.points || 0;
-        combined[res.teamId].stageRanks[si] = res.rank;
-      }
-    }
-
-    const gpFinal = Object.values(combined)
-      .sort((a, b) => b.totalPoints - a.totalPoints)
-      .map((r, i) => ({ ...r, gpRank: i + 1 }));
-
-    room.gpFinalResults = gpFinal;
-
-    io.to(sRoom).emit('gp_final_results', {
-      finalResults: gpFinal,
-      allStageResults: room.gpStageResults,
-    });
-
-    console.log(`🏆🏆🏆 Grand Prix 종료! 세션 [${sessionId}]`, gpFinal);
-  }
+  console.log(`🏆 라운드 ${room.roundNumber} 종료! 세션 [${sessionId}] (누적 ${room.roundResults.length}라운드)`);
 }
 
 /**
  * 레이스 결과 DB 저장
  */
-function saveResults(db, sessionId, room, gpStage = null) {
+function saveResults(db, sessionId, room) {
   if (!db || !room.raceResults || room.raceResults.length === 0) return;
 
   try {
@@ -740,7 +943,7 @@ function saveResults(db, sessionId, room, gpStage = null) {
           sessionId,
           teamId: typeof res.teamId === 'number' ? res.teamId : null,
           mapLevel: room.mapLevel,
-          mode: room.raceMode || 'competition',
+          mode: 'competition',
           lr: res.lr ?? null,
           momentum: res.momentum ?? null,
           status: res.status,
@@ -748,8 +951,8 @@ function saveResults(db, sessionId, room, gpStage = null) {
           finalLoss: isNaN(res.finalLoss) ? null : res.finalLoss ?? null,
           cumulativeLoss: res.cumulativeLoss ?? null,
           rank: res.rank ?? null,
-          gpStage: gpStage,
-          gpPoints: res.points ?? 0,
+          gpStage: room.roundNumber || null,
+          gpPoints: 0,
         });
       }
     });

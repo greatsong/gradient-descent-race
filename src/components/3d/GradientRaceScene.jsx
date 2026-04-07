@@ -86,7 +86,7 @@ export default function GradientRaceScene() {
   const teams = useRaceStore((s) => s.teams);
   const balls = useRaceStore((s) => s.balls);
   const myTeamId = useRaceStore((s) => s.myTeamId);
-  const racePhase = useRaceStore((s) => s.racePhase);
+  const racePhase = useRaceStore((s) => s.phase);
   const mapLevel = useRaceStore((s) => s.mapLevel);
   const [visible, setVisible] = useState(true);
   const [camMode, setCamMode] = useState('overview');
@@ -100,7 +100,7 @@ export default function GradientRaceScene() {
   }, []);
 
   useEffect(() => {
-    if (['finished', 'setup'].includes(racePhase)) setCamMode('overview');
+    if (['results', 'final', 'lobby'].includes(racePhase)) setCamMode('overview');
   }, [racePhase]);
 
   const cycleCamera = () => {
