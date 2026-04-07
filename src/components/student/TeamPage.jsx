@@ -176,6 +176,10 @@ export default function TeamPage() {
     const socket = getSocket();
     setMapLevel(soloMapLevel); // 3D 씬 지형 동기화
     setSoloResults(null);
+    // 3D 씬에서 팀 정보로 공 색상/이름 표시하기 위해 teams에 자기 팀 추가
+    const tid = String(myTeam?.id || 'solo');
+    setTeams({ [tid]: { name: myTeam?.name || '나', color: myTeam?.color || '#6366f1' } });
+    setMyTeamId(tid);
     socket.emit('start_solo', {
       mapLevel: soloMapLevel,
       learningRate: soloLr,
@@ -183,7 +187,7 @@ export default function TeamPage() {
     });
     setSoloRunning(true);
     setSoloMode(true);
-  }, [soloMapLevel, soloLr, soloMomentum, setSoloMode, setMapLevel]);
+  }, [soloMapLevel, soloLr, soloMomentum, setSoloMode, setMapLevel, myTeam, setTeams, setMyTeamId]);
 
   const stopSolo = useCallback(() => {
     const socket = getSocket();

@@ -597,14 +597,20 @@ export function setupSocketHandlers(io, db) {
       const team = room.teams.get(currentTeamId);
       if (!team) return;
 
+      // 솔로 파라미터는 payload에서 직접 받음
+      const soloLr = clampLearningRate(payload?.learningRate, 0.1);
+      const soloMom = clampMomentum(payload?.momentum, 0.9);
+      team.learningRate = soloLr;
+      team.momentum = soloMom;
+
       const level = normalizeMapLevel(payload?.mapLevel ?? payload?.level, room.mapLevel);
       const position = getRandomizedStartPosition(level);
       const ball = createRaceBall({
         level,
         x: position.x,
         z: position.z,
-        lr: team.learningRate || 0.1,
-        momentum: team.momentum || 0.9,
+        lr: soloLr,
+        momentum: soloMom,
         status: 'racing',
       });
 

@@ -91,7 +91,7 @@ export default function GradientRaceScene() {
   const [visible, setVisible] = useState(true);
   const [camMode, setCamMode] = useState('overview');
   const myBall = myTeamId ? balls[myTeamId] : null;
-  const showToggle = racePhase === 'racing' && Object.keys(balls).length > 0;
+  const showToggle = Object.keys(balls).length > 0;
 
   useEffect(() => {
     const h = () => setVisible(!document.hidden);
