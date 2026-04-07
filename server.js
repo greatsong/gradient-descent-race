@@ -11,7 +11,8 @@ import Database from 'better-sqlite3';
 import { setupSocketHandlers } from './backend/socketHandlers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PORT = process.env.PORT || 4024;
+const SERVER_PORT = 4024;
+const PORT = process.env.NODE_ENV === 'production' ? (process.env.PORT || SERVER_PORT) : SERVER_PORT;
 const TEACHER_PIN = process.env.TEACHER_PIN || '000000';
 
 // ── DB 초기화 ──
