@@ -7,19 +7,19 @@ import GradientRaceScene from '../3d/GradientRaceScene';
 import CountdownOverlay from '../shared/CountdownOverlay';
 
 const MAP_LEVELS = [
-  { level: 1, emoji: '\u26F3', name: '입문', desc: '단순한 볼록 함수에서 경사하강법의 기초를 익힙니다.' },
-  { level: 2, emoji: '\uD83C\uDFD4\uFE0F', name: '초급', desc: '학습률 크기에 따른 수렴 속도 차이를 체험합니다.' },
-  { level: 3, emoji: '\uD83C\uDF0B', name: '중급', desc: '로컬 미니마가 있는 지형! 모멘텀을 활용해 탈출하세요.' },
-  { level: 4, emoji: '\uD83C\uDF0A', name: '고급', desc: '좁은 계곡에서 진동 제어. 학습률과 모멘텀 균형이 핵심!' },
-  { level: 5, emoji: '\uD83C\uDFAF', name: '마스터', desc: '모든 전략을 종합! 복잡한 지형에서 글로벌 최솟값 찾기.' },
-  { level: 6, emoji: '\u2696\uFE0F', name: '쌍봉', desc: '두 개의 깊은 골짜기! 글로벌 최솟값은 어디?' },
-  { level: 7, emoji: '\uD83C\uDF00', name: '나선', desc: '나선형 계곡을 따라 내려가는 고급 지형.' },
-  { level: 8, emoji: '\uD83C\uDFDC\uFE0F', name: '절벽', desc: '절벽과 평원! 급경사에서 발산 주의.' },
+  { level: 1, emoji: '⛳', name: '입문', desc: '큰 학습률 = 빠른 하강! 최적 LR을 찾아보세요.' },
+  { level: 2, emoji: '🏔️', name: '초급', desc: 'LR이 너무 크면 진동! 적절한 범위를 찾아보세요.' },
+  { level: 3, emoji: '🌋', name: '중급', desc: '모멘텀 없이는 함정에 빠집니다! 모멘텀의 힘을 경험하세요.' },
+  { level: 4, emoji: '🌊', name: '고급', desc: '링 모양 장벽이 중심을 감싸고 있어요. 모멘텀으로 돌파하세요!' },
+  { level: 5, emoji: '🎯', name: '마스터', desc: 'LR과 모멘텀 모두 정밀 조절이 필요한 최종 도전!' },
+  { level: 6, emoji: '⚖️', name: '함정', desc: '글로벌로 가는 길에 유혹적인 함정이! 모멘텀으로 통과하세요.' },
+  { level: 7, emoji: '🌀', name: '나선', desc: '나선형 장벽과 로컬 함정! 경로 의존성을 체험합니다.' },
+  { level: 8, emoji: '🏜️', name: '절벽', desc: '절벽 너머 깊은 계곡! 다단계 전략 도전!' },
 ];
 
 const DIFFICULTY_COLORS = {
   '입문': '#22c55e', '초급': '#3b82f6', '중급': '#f59e0b',
-  '고급': '#ef4444', '마스터': '#a855f7', '쌍봉': '#f59e0b',
+  '고급': '#ef4444', '마스터': '#a855f7', '함정': '#f59e0b',
   '나선': '#ef4444', '절벽': '#a855f7',
 };
 

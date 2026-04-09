@@ -12,7 +12,7 @@ const MAP_INFO = {
   1: { emoji: '\u26F3', name: '입문', desc: '학습률의 기초를 익힙니다.' },
   2: { emoji: '\uD83C\uDFD4\uFE0F', name: '초급', desc: '학습률 조절을 배웁니다.' },
   3: { emoji: '\uD83C\uDF0B', name: '중급', desc: '로컬 미니마 탈출 도전!' },
-  4: { emoji: '\uD83C\uDF0A', name: '고급', desc: '계곡 진동 제어가 핵심.' },
+  4: { emoji: '\uD83C\uDF0A', name: '고급', desc: '안장점 탈출! 모멘텀이 핵심.' },
   5: { emoji: '\uD83C\uDFAF', name: '마스터', desc: '종합 전략 활용!' },
   6: { emoji: '\u2696\uFE0F', name: '쌍봉', desc: '두 골짜기 중 글로벌 찾기.' },
   7: { emoji: '\uD83C\uDF00', name: '나선', desc: '나선형 계곡 도전.' },
@@ -20,14 +20,14 @@ const MAP_INFO = {
 };
 
 const SOLO_MAP_LEVELS = [
-  { level: 1, emoji: '\u26F3', name: '입문' },
-  { level: 2, emoji: '\uD83C\uDFD4\uFE0F', name: '초급' },
-  { level: 3, emoji: '\uD83C\uDF0B', name: '중급' },
-  { level: 4, emoji: '\uD83C\uDF0A', name: '고급' },
-  { level: 5, emoji: '\uD83C\uDFAF', name: '마스터' },
-  { level: 6, emoji: '\u2696\uFE0F', name: '쌍봉' },
-  { level: 7, emoji: '\uD83C\uDF00', name: '나선' },
-  { level: 8, emoji: '\uD83C\uDFDC\uFE0F', name: '절벽' },
+  { level: 1, emoji: '⛳', name: '입문' },
+  { level: 2, emoji: '🏔️', name: '초급' },
+  { level: 3, emoji: '🌋', name: '중급' },
+  { level: 4, emoji: '🌊', name: '고급' },
+  { level: 5, emoji: '🎯', name: '마스터' },
+  { level: 6, emoji: '⚖️', name: '함정' },
+  { level: 7, emoji: '🌀', name: '나선' },
+  { level: 8, emoji: '🏜️', name: '절벽' },
 ];
 
 export default function TeamPage() {

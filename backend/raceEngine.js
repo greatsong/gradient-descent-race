@@ -1,36 +1,36 @@
 import { GLOBAL_MINIMA, MAP_LEVELS, gradientByLevel, lossFunctionByLevel } from './lossFunction.js';
 
 export const START_POSITIONS = {
-    1: { x: -5, z: -5 },   // 글로벌(0,0)까지 거리 ~7 — 입문: 가깝고 쉬움
-    2: { x: -6, z: -4 },   // 글로벌(0,2)까지 거리 ~8 — 초급: 적당한 거리
-    3: { x: -7, z: -5 },   // 글로벌(1,2)까지 거리 ~10 — 중급: 로컬 미니마 경유
-    4: { x: 7, z: 7 },     // 글로벌(0,-3)까지 거리 ~13 — 고급: 계곡 진동
-    5: { x: -8, z: -8 },   // 글로벌(1,1)까지 거리 ~13 — 마스터: 함정 미로
-    6: { x: 6, z: 6 },     // 글로벌(-3,0)까지 거리 ~11 — 쌍봉 능선
-    7: { x: 8, z: 8 },     // 글로벌(0,0)까지 거리 ~11 — 나선 외곽
-    8: { x: 5, z: 5 },     // 글로벌(-3,-3)까지 거리 ~11 — 평원→절벽
+    1: { x: -7, z: -7 },   // 글로벌(0,0) dist~10 — 입문
+    2: { x: -5, z: -4 },   // 글로벌(0,0) dist~6.4 — 초급
+    3: { x: -5, z: -4 },   // 글로벌(0,0) dist~6.4 — 중급
+    4: { x: 6, z: 6 },     // 글로벌(0,0) dist~8.5 — 고급: 링 장벽
+    5: { x: -4, z: -4 },   // 글로벌(0,0) dist~5.7 — 마스터
+    6: { x: 4, z: 3 },     // 글로벌(-3,0) dist~7.6 — 경로 위 함정
+    7: { x: 6, z: 6 },     // 글로벌(0,0) dist~8.5 — 나선 계곡
+    8: { x: 5, z: 5 },     // 글로벌(-3,-3) dist~11.3 — 절벽과 평원
 };
 
 export const SPEED_SCALE = {
-    1: 0.4,
-    2: 0.35,
-    3: 0.25,
-    4: 0.22,
-    5: 0.18,
-    6: 0.22,
-    7: 0.2,
-    8: 0.2,
+    1: 0.5,
+    2: 0.45,
+    3: 0.35,
+    4: 0.5,
+    5: 0.4,
+    6: 0.35,
+    7: 0.42,
+    8: 0.6,
 };
 
 export const CONVERGE_TRAIL = {
-    1: 100,
-    2: 150,
-    3: 200,
-    4: 250,
-    5: 300,
-    6: 200,
-    7: 300,
-    8: 350,
+    1: 80,
+    2: 100,
+    3: 150,
+    4: 150,
+    5: 200,
+    6: 150,
+    7: 200,
+    8: 200,
 };
 
 export const MAP_BOUNDARY = {
@@ -178,7 +178,7 @@ export function inspectRaceBall(ball, level, elapsedMs) {
 
     if (elapsedMs > RACE_TIMEOUT_MS) {
         return {
-            status: distToGlobal < 0.8 ? 'converged' : 'local_minimum',
+            status: distToGlobal < 1.5 ? 'converged' : 'local_minimum',
             reason: 'timeout',
             distToGlobal,
         };
@@ -188,7 +188,7 @@ export function inspectRaceBall(ball, level, elapsedMs) {
     const minTrail = CONVERGE_TRAIL[normalizedLevel] || CONVERGE_TRAIL[2];
     if (speed < CONVERGE_SPEED && ball.trail.length > minTrail) {
         return {
-            status: distToGlobal < 0.8 ? 'converged' : 'local_minimum',
+            status: distToGlobal < 1.5 ? 'converged' : 'local_minimum',
             reason: 'stopped',
             distToGlobal,
         };
