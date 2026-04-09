@@ -402,7 +402,7 @@ export default function TeacherApp() {
 
             <button
               className="btn-primary"
-              onClick={() => socket.emit('go_param_set', { mapLevel })}
+              onClick={() => socket.emit('go_to_param_set', { mapLevel })}
               style={{ width: '100%', padding: 14, fontSize: 15, cursor: 'pointer' }}
             >
               {'\u2699\uFE0F'} 파라미터 세팅 시간
