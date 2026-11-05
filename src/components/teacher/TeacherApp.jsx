@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { apiPost, apiGet } from '../../utils/api';
+import { apiPost, apiGet, getTeacherToken, setTeacherToken } from '../../utils/api';
 import { getSocket } from '../../utils/socket';
 import useSessionStore from '../../store/sessionStore';
 import useRaceStore from '../../store/raceStore';
@@ -50,10 +50,14 @@ export default function TeacherApp() {
   // PIN 인증
   const handleLogin = async () => {
     try {
-      await apiPost('/auth/teacher', { pin });
+      const data = await apiPost('/auth/teacher', { pin });
+      setTeacherToken(data.token);
       setAuthenticated(true);
-    } catch {
-      setPinError('잘못된 PIN입니다');
+    } catch (err) {
+      const status = String(err?.message || '');
+      if (status.includes('429')) setPinError('PIN 실패가 너무 많습니다. 10분 뒤 다시 시도하세요');
+      else if (status.includes('503')) setPinError('서버에 PIN이 설정되지 않았습니다. 관리자에게 문의하세요');
+      else setPinError('잘못된 PIN입니다');
     }
   };
 
@@ -62,14 +66,22 @@ export default function TeacherApp() {
     const data = await apiPost('/session/create', {});
     setSession(data.sessionId);
     const socket = getSocket();
-    socket.emit('teacher:join', { sessionId: data.sessionId });
+    socket.emit('teacher:join', { sessionId: data.sessionId, token: getTeacherToken() });
   };
 
   // Socket 이벤트
   useEffect(() => {
-    if (!sessionId) return;
+    if (!sessionId || !authenticated) return;
     const socket = getSocket();
-    socket.emit('teacher:join', { sessionId });
+    const joinAsTeacher = () => socket.emit('teacher:join', { sessionId, token: getTeacherToken() });
+    joinAsTeacher();
+    // 끊겼다 붙으면 방에서 빠져 있으므로 다시 입장한다
+    socket.on('connect', joinAsTeacher);
+    socket.on('auth_error', () => {
+      setTeacherToken('');
+      setAuthenticated(false);
+      setPinError('교사 인증이 만료되었습니다. PIN을 다시 입력하세요');
+    });
 
     const refreshTeams = async () => {
       try {
@@ -137,6 +149,8 @@ export default function TeacherApp() {
 
     return () => {
       clearInterval(interval);
+      socket.off('connect', joinAsTeacher);
+      socket.off('auth_error');
       socket.off('team_joined');
       socket.off('phase_changed');
       socket.off('map_changed');
@@ -149,7 +163,7 @@ export default function TeacherApp() {
       socket.off('final_results');
       socket.off('room_state');
     };
-  }, [sessionId, setTeams, updateBalls, setPhase, setMapLevel,
+  }, [sessionId, authenticated, setTeams, updateBalls, setPhase, setMapLevel,
       setResults, setReadyTeams, setTotalTeams, setRoundNumber,
       setRoundResults, setCumulativeStandings, setCountdownSeconds, reset]);
 

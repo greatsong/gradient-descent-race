@@ -1,3 +1,4 @@
+import { isTeacherToken, safeEqual, teacherTokenExpiresAt } from './auth.js';
 import {
   rooms,
   getRoom,
@@ -139,18 +140,29 @@ function calculateCumulativeStandings(room) {
 // ═══════════════════════════════════════════════
 
 export function setupSocketHandlers(io, db) {
+  const findSession = (sessionId) => (
+    typeof sessionId === 'string' && /^[A-Za-z0-9_-]{1,32}$/.test(sessionId)
+      ? db.prepare('SELECT id FROM sessions WHERE id = ?').get(sessionId)
+      : null
+  );
+
   io.on('connection', (socket) => {
     console.log(`✨ 연결: ${socket.id}`);
 
     let currentSession = null; // sessionId
     let currentTeamId = null;  // DB team PK
+    let teacherExpiry = null;
 
     // ──────────────────────────────
     // ▸ 교사 입장
     // ──────────────────────────────
     socket.on('teacher:join', safeHandler('teacher:join', (payload) => {
-      const { sessionId } = payload;
-      if (!sessionId) return;
+      const { sessionId, token } = payload || {};
+      // 예전에는 인증 없이 어떤 세션의 교사도 될 수 있었다. 방 이름 주입을 막으려고 세션도 DB에서 확인한다
+      if (!isTeacherToken(db, token) || !findSession(sessionId)) {
+        socket.emit('auth_error', { message: '교사 인증이 필요합니다. PIN으로 다시 로그인하세요.' });
+        return;
+      }
 
       currentSession = sessionId;
       const room = getRoom(sessionId);
@@ -158,6 +170,17 @@ export function setupSocketHandlers(io, db) {
 
       socket.join(sessionRoom(sessionId));
       socket.join(teacherRoom(sessionId));
+
+      // 소켓은 입장할 때만 인증하므로, 토큰이 끝나는 시각에 교사 권한을 거둔다
+      clearTimeout(teacherExpiry);
+      const delay = Math.max(0, teacherTokenExpiresAt(db, token) - Date.now());
+      teacherExpiry = setTimeout(() => {
+        if (room.teacherId === socket.id) room.teacherId = null;
+        socket.leave(teacherRoom(sessionId));
+        socket.leave(sessionRoom(sessionId));
+        socket.emit('auth_error', { message: '교사 인증이 만료되었습니다. PIN으로 다시 로그인하세요.' });
+      }, Math.min(delay, 2 ** 31 - 1));
+      teacherExpiry.unref?.();
 
       console.log(`🎓 교사 입장 → 세션 [${sessionId}]`);
 
@@ -168,8 +191,19 @@ export function setupSocketHandlers(io, db) {
     // ▸ 팀(학생) 입장
     // ──────────────────────────────
     socket.on('team:join', safeHandler('team:join', (payload) => {
-      const { sessionId, teamId, teamName, members, color } = payload;
+      const { sessionId, teamId, teamToken } = payload || {};
       if (!sessionId || !teamId) return;
+
+      // 등록 때 받은 팀 토큰을 확인한다. 이름·색은 payload가 아니라 DB 값을 쓴다
+      const teamRow = findSession(sessionId) && Number.isInteger(teamId)
+        ? db.prepare('SELECT name, color, access_token FROM teams WHERE id = ? AND session_id = ?').get(teamId, sessionId)
+        : null;
+      if (!teamRow || !safeEqual(teamToken, teamRow.access_token)) {
+        socket.emit('team:join:error', { message: '세션 코드로 다시 입장해 주세요.' });
+        return;
+      }
+      const teamName = teamRow.name;
+      const color = teamRow.color;
 
       // 인원 제한 체크
       const existingRoom = getRoom(sessionId);
@@ -191,15 +225,15 @@ export function setupSocketHandlers(io, db) {
         // 재접속: socketId 갱신
         const existing = room.teams.get(teamId);
         existing.socketId = socket.id;
-        console.log(`🔄 팀 [${existing.name}] 재접속 → 세션 [${sessionId}]`);
+        console.log(`🔄 팀 재접속 → 세션 [${sessionId}]`);
       } else {
         addTeamToRoom(sessionId, teamId, {
           socketId: socket.id,
           name: sanitize(teamName, 24) || `Team ${teamId}`,
-          members: members || '[]',
+          members: '[]', // 팀원 이름은 소켓으로 퍼뜨리지 않는다. 교사 화면은 REST로 받는다
           color: color || `hsl(${Math.floor(Math.random() * 360)}, 80%, 60%)`,
         });
-        console.log(`🚀 팀 [${teamName}] (id=${teamId}) → 세션 [${sessionId}] (${room.teams.size}팀)`);
+        console.log(`🚀 팀 입장 (id=${teamId}) → 세션 [${sessionId}] (${room.teams.size}팀)`);
       }
 
       // 재접속 시 레이스 데이터 복구
@@ -257,7 +291,7 @@ export function setupSocketHandlers(io, db) {
       io.to(sessionRoom(currentSession)).emit('ready_update', status);
 
       const team = room.teams.get(currentTeamId);
-      console.log(`✅ 팀 [${team?.name}] 레디! (${status.readyTeams.length}/${status.totalTeams})`);
+      console.log(`✅ 팀 레디! (${status.readyTeams.length}/${status.totalTeams})`);
 
       // 모두 레디면 교사에게 알림
       if (areAllReady(currentSession)) {
@@ -326,7 +360,7 @@ export function setupSocketHandlers(io, db) {
       team.momentum = momentum;
       team.paramsConfirmed = true;
 
-      console.log(`🏎️ 팀 [${team.name}] 파라미터: lr=${learningRate}, m=${momentum}`);
+      console.log(`🏎️ 파라미터: lr=${learningRate}, m=${momentum}`);
 
       // 레이스 진행 중이면 공의 파라미터도 즉시 업데이트
       const ball = room.raceBalls[currentTeamId];
@@ -664,7 +698,7 @@ export function setupSocketHandlers(io, db) {
         teamId: currentTeamId,
       });
 
-      console.log(`🎮 솔로 연습 시작! 팀 [${team.name}] 맵=${level}`);
+      console.log(`🎮 솔로 연습 시작! 맵=${level}`);
     }));
 
     // ──────────────────────────────
@@ -708,13 +742,14 @@ export function setupSocketHandlers(io, db) {
 
       socket.emit('solo_finished', { results: [{ ...result, rank: 1 }], balls: { [currentTeamId]: ball } });
 
-      console.log(`⏹️ 솔로 연습 정지! 팀 [${team?.name}]`);
+      console.log(`⏹️ 솔로 연습 정지!`);
     }));
 
     // ──────────────────────────────
     // ▸ 연결 해제
     // ──────────────────────────────
     socket.on('disconnect', safeHandler('disconnect', () => {
+      clearTimeout(teacherExpiry);
       if (!currentSession) {
         console.log(`🌙 연결 해제: ${socket.id} (세션 없음)`);
         return;
@@ -733,7 +768,7 @@ export function setupSocketHandlers(io, db) {
       // 팀 연결 해제 처리
       if (currentTeamId && room.teams.has(currentTeamId)) {
         const team = room.teams.get(currentTeamId);
-        console.log(`💫 팀 [${team.name}] 연결 해제 (세션 [${currentSession}])`);
+        console.log(`💫 팀 연결 해제 (세션 [${currentSession}])`);
 
         // lobby에서만 팀 제거 (레이스 중이면 유지)
         if (room.racePhase === 'lobby') {

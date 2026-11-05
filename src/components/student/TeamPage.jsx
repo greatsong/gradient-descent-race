@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { getSocket } from '../../utils/socket';
 import useRaceStore from '../../store/raceStore';
 import useSessionStore from '../../store/sessionStore';
@@ -32,6 +32,7 @@ const SOLO_MAP_LEVELS = [
 
 export default function TeamPage() {
   const { teamId } = useParams();
+  const navigate = useNavigate();
   const sessionId = useSessionStore(s => s.sessionId);
   const myTeam = useSessionStore(s => s.myTeam);
 
@@ -62,9 +63,15 @@ export default function TeamPage() {
     const socket = getSocket();
 
     // Reconnect
-    if (sessionId && myTeam) {
-      socket.emit('team:join', { sessionId, teamId: myTeam.id, teamName: myTeam.name });
-    }
+    const joinAsTeam = () => {
+      if (sessionId && myTeam) {
+        socket.emit('team:join', { sessionId, teamId: myTeam.id, teamToken: myTeam.teamToken });
+      }
+    };
+    joinAsTeam();
+    // 끊겼다 붙으면 방에서 빠져 있으므로 다시 입장한다
+    socket.on('connect', joinAsTeam);
+    socket.on('team:join:error', () => navigate('/'));
 
     socket.on('phase_changed', (data) => {
       setPhase(data.phase);
@@ -139,6 +146,8 @@ export default function TeamPage() {
     });
 
     return () => {
+      socket.off('connect', joinAsTeam);
+      socket.off('team:join:error');
       socket.off('phase_changed');
       socket.off('map_changed');
       socket.off('ready_update');

@@ -45,7 +45,7 @@ export default function JoinPage() {
       setMyTeam(team);
 
       const socket = getSocket();
-      socket.emit('team:join', { sessionId: sessionCode.toUpperCase(), teamId: team.id, teamName: team.name });
+      socket.emit('team:join', { sessionId: sessionCode.toUpperCase(), teamId: team.id, teamToken: team.teamToken });
 
       navigate(`/team/${team.id}`);
     } catch (e) {

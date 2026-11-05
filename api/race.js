@@ -1,9 +1,10 @@
 import { Router } from 'express';
+import { requireTeacher } from '../backend/auth.js';
 
 const router = Router();
 
 // 레이스 결과 저장
-router.post('/results', (req, res) => {
+router.post('/results', requireTeacher, (req, res) => {
   try {
     const { sessionId, results, mode, mapLevel, gpStage } = req.body;
     const stmt = req.db.prepare(`
@@ -23,19 +24,21 @@ router.post('/results', (req, res) => {
     insert(results);
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('[race]', err.message);
+    res.status(500).json({ error: '처리 중 오류가 발생했습니다' });
   }
 });
 
 // 레이스 결과 조회
-router.get('/results/:sessionId', (req, res) => {
+router.get('/results/:sessionId', requireTeacher, (req, res) => {
   try {
     const results = req.db.prepare(
       'SELECT r.*, t.name as team_name FROM race_results r JOIN teams t ON r.team_id = t.id WHERE r.session_id = ? ORDER BY r.created_at DESC'
     ).all(req.params.sessionId);
     res.json(results);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('[race]', err.message);
+    res.status(500).json({ error: '처리 중 오류가 발생했습니다' });
   }
 });
 
