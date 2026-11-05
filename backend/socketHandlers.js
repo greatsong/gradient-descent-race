@@ -1,4 +1,4 @@
-import { isTeacherToken, safeEqual } from './auth.js';
+import { isTeacherToken, safeEqual, teacherTokenExpiresAt } from './auth.js';
 import {
   rooms,
   getRoom,
@@ -151,6 +151,7 @@ export function setupSocketHandlers(io, db) {
 
     let currentSession = null; // sessionId
     let currentTeamId = null;  // DB team PK
+    let teacherExpiry = null;
 
     // ──────────────────────────────
     // ▸ 교사 입장
@@ -169,6 +170,17 @@ export function setupSocketHandlers(io, db) {
 
       socket.join(sessionRoom(sessionId));
       socket.join(teacherRoom(sessionId));
+
+      // 소켓은 입장할 때만 인증하므로, 토큰이 끝나는 시각에 교사 권한을 거둔다
+      clearTimeout(teacherExpiry);
+      const delay = Math.max(0, teacherTokenExpiresAt(db, token) - Date.now());
+      teacherExpiry = setTimeout(() => {
+        if (room.teacherId === socket.id) room.teacherId = null;
+        socket.leave(teacherRoom(sessionId));
+        socket.leave(sessionRoom(sessionId));
+        socket.emit('auth_error', { message: '교사 인증이 만료되었습니다. PIN으로 다시 로그인하세요.' });
+      }, Math.min(delay, 2 ** 31 - 1));
+      teacherExpiry.unref?.();
 
       console.log(`🎓 교사 입장 → 세션 [${sessionId}]`);
 
@@ -737,6 +749,7 @@ export function setupSocketHandlers(io, db) {
     // ▸ 연결 해제
     // ──────────────────────────────
     socket.on('disconnect', safeHandler('disconnect', () => {
+      clearTimeout(teacherExpiry);
       if (!currentSession) {
         console.log(`🌙 연결 해제: ${socket.id} (세션 없음)`);
         return;

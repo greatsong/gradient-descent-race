@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { nanoid } from 'nanoid';
-import { createRandomToken, isTeacherToken, joinCodeLimiter, maskName, requireTeacher } from '../backend/auth.js';
+import { createRandomToken, isTeacherToken, joinCodeLimiter, requireTeacher } from '../backend/auth.js';
 
 const router = Router();
 
@@ -10,20 +10,18 @@ const TEAM_COLORS = [
   '#6366f1', '#a855f7', '#d946ef', '#0ea5e9', '#84cc16',
 ];
 
-const MAX_TEAMS_PER_SESSION = 60;
+// 남용 방지용 상한이다. 끊긴 팀은 DB에서 줄지 않으므로 수업 정원(50팀)보다 넉넉하게 둔다
+const MAX_TEAMS_PER_SESSION = 300;
 const MAX_MEMBERS_PER_TEAM = 8;
 const MAX_NAME_LENGTH = 30;
 
 const TEAM_COLUMNS = 'id, session_id, name, members, color, created_at';
 
-// 실명은 교사에게만 보낸다. 세션 코드만 아는 사람에게는 가린 이름을 보낸다
+// 팀원 이름은 교사에게만 보낸다. 학생 화면은 참여 팀 수만 쓴다
 function teamsForViewer(req, sessionId) {
   const showNames = isTeacherToken(req.db, req.get('x-teacher-token'));
   const teams = req.db.prepare(`SELECT ${TEAM_COLUMNS} FROM teams WHERE session_id = ?`).all(sessionId);
-  return teams.map((team) => {
-    const members = JSON.parse(team.members || '[]');
-    return { ...team, members: showNames ? members : members.map(maskName) };
-  });
+  return teams.map((team) => ({ ...team, members: showNames ? JSON.parse(team.members || '[]') : [] }));
 }
 
 function parseMembers(value) {
@@ -91,8 +89,8 @@ router.post('/:sessionId/teams', (req, res) => {
   }
 });
 
-// 팀 목록
-router.get('/:sessionId/teams', (req, res) => {
+// 팀 목록 (교사 화면 전용)
+router.get('/:sessionId/teams', requireTeacher, (req, res) => {
   try {
     res.json(teamsForViewer(req, req.params.sessionId));
   } catch (err) {

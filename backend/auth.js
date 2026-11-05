@@ -2,7 +2,7 @@
 // 학생은 로그인 없이 수업 코드(세션 id)로 들어오고, 교사 기능만 PIN으로 받은 토큰을 요구한다.
 import crypto from 'crypto';
 
-const TOKEN_TTL_MS = 12 * 60 * 60 * 1000;
+const TOKEN_TTL_MS = Number(process.env.TEACHER_TOKEN_TTL_MS) || 12 * 60 * 60 * 1000;
 const FAIL_WINDOW_MS = 10 * 60 * 1000;
 const PIN_FAIL_LIMIT = 30;
 const CODE_FAIL_LIMIT = Number(process.env.JOIN_CODE_FAIL_LIMIT) || 60;
@@ -37,6 +37,12 @@ export function issueTeacherToken(db) {
   const token = createRandomToken();
   db.prepare('INSERT INTO teacher_tokens (token_hash, expires_at) VALUES (?, ?)').run(tokenHash(token), now + TOKEN_TTL_MS);
   return token;
+}
+
+/** 토큰이 끝나는 시각 (밀리초). 없으면 0 */
+export function teacherTokenExpiresAt(db, token) {
+  if (typeof token !== 'string' || !token) return 0;
+  return db.prepare('SELECT expires_at FROM teacher_tokens WHERE token_hash = ?').get(tokenHash(token))?.expires_at || 0;
 }
 
 export function isTeacherToken(db, token) {
@@ -75,10 +81,3 @@ function failureLimiter(limit) {
 
 export const pinLimiter = failureLimiter(PIN_FAIL_LIMIT);
 export const joinCodeLimiter = failureLimiter(CODE_FAIL_LIMIT);
-
-/** "김철수" → "김○○" */
-export function maskName(name) {
-  const chars = Array.from(String(name ?? ''));
-  if (chars.length === 0) return '';
-  return chars[0] + '○'.repeat(Math.max(1, chars.length - 1));
-}
