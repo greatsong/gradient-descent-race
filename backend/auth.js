@@ -4,7 +4,7 @@ import crypto from 'crypto';
 
 const TOKEN_TTL_MS = 12 * 60 * 60 * 1000;
 const FAIL_WINDOW_MS = 10 * 60 * 1000;
-const PIN_FAIL_LIMIT = 20;
+const PIN_FAIL_LIMIT = 30;
 const CODE_FAIL_LIMIT = Number(process.env.JOIN_CODE_FAIL_LIMIT) || 60;
 
 const sha256 = (value) => crypto.createHash('sha256').update(value).digest();

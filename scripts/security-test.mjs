@@ -61,11 +61,12 @@ check('정상 팀 입장', studentEvents.some(([e]) => e === 'room_state'));
 check('소켓에 실명이 없다', !JSON.stringify(studentEvents).includes('김철수'));
 
 if (process.env.TEST_RATE_LIMIT === '1') {
-  for (let i = 0; i < 21; i += 1) await api('POST', '/auth/teacher', { pin: `wrong${i}` });
+  for (let i = 0; i < 31; i += 1) await api('POST', '/auth/teacher', { pin: `wrong${i}` });
   check('PIN 차단 뒤 맞는 값도 429', (await api('POST', '/auth/teacher', { pin: PIN })).status === 429);
   let status = 0;
   for (let i = 0; i < 61; i += 1) status = (await api('GET', `/session/NOPE${i}`)).status;
   check('코드 추측 제한', status === 429);
+  check('차단 중에도 맞는 코드는 입장한다', (await api('GET', `/session/${sessionId}`)).status === 200);
 }
 for (const s of [spy, teacher, student]) s.disconnect();
 console.log(failed ? `실패 ${failed}건` : '모두 통과');

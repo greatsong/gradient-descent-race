@@ -32,8 +32,9 @@ startRetentionJob(db);
 // ── Express 설정 ──
 const app = express();
 const httpServer = createServer(app);
-// Railway 프록시 뒤에서 req.ip가 실제 접속 IP가 되도록 (시도 횟수 제한용)
-app.set('trust proxy', 1);
+// Railway 프록시 뒤에서만 X-Forwarded-For를 믿는다 (시도 횟수 제한용).
+// 프록시 없이 직접 접속하는 환경에서 믿으면 헤더를 바꿔 제한을 우회할 수 있다
+app.set('trust proxy', process.env.RAILWAY_ENVIRONMENT_NAME ? 1 : false);
 
 const DEFAULT_ORIGINS = [
   'http://localhost:4023',

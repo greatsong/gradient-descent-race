@@ -3,7 +3,8 @@
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export function purgeExpiredSessions(db, days) {
-  if (!Number.isFinite(days) || days <= 0) return 0;
+  // 1일 미만은 받지 않는다. 0.5를 내림하면 "-0 days"가 되어 모든 세션이 지워진다
+  if (!Number.isFinite(days) || days < 1) return 0;
   const expired = db.prepare("SELECT id FROM sessions WHERE created_at < datetime('now', ?)").all(`-${Math.floor(days)} days`);
   const purge = db.transaction((sessionId) => {
     db.prepare('DELETE FROM race_results WHERE session_id = ?').run(sessionId);

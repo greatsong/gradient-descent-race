@@ -53,11 +53,12 @@ router.post('/create', requireTeacher, (req, res) => {
 // 세션 조회 — 학생이 입력한 코드를 확인하는 경로다. 없는 코드를 계속 넣으면 막는다
 router.get('/:sessionId', (req, res) => {
   try {
-    if (joinCodeLimiter.blocked(req.ip)) {
-      return res.status(429).json({ error: '코드 입력 실패가 너무 많습니다. 10분 뒤 다시 시도하세요' });
-    }
     const session = req.db.prepare('SELECT id, status, created_at FROM sessions WHERE id = ?').get(req.params.sessionId);
     if (!session) {
+      // 맞는 코드는 막지 않는다. 코드는 임의 8자라 추측이 어렵고, 같은 학교 IP의 오타로 수업 입장이 막히면 안 된다
+      if (joinCodeLimiter.blocked(req.ip)) {
+        return res.status(429).json({ error: '코드 입력 실패가 너무 많습니다. 10분 뒤 다시 시도하세요' });
+      }
       joinCodeLimiter.record(req.ip);
       return res.status(404).json({ error: '세션을 찾을 수 없습니다' });
     }

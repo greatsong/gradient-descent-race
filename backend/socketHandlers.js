@@ -213,7 +213,7 @@ export function setupSocketHandlers(io, db) {
         // 재접속: socketId 갱신
         const existing = room.teams.get(teamId);
         existing.socketId = socket.id;
-        console.log(`🔄 팀 [${existing.name}] 재접속 → 세션 [${sessionId}]`);
+        console.log(`🔄 팀 재접속 → 세션 [${sessionId}]`);
       } else {
         addTeamToRoom(sessionId, teamId, {
           socketId: socket.id,
@@ -221,7 +221,7 @@ export function setupSocketHandlers(io, db) {
           members: '[]', // 팀원 이름은 소켓으로 퍼뜨리지 않는다. 교사 화면은 REST로 받는다
           color: color || `hsl(${Math.floor(Math.random() * 360)}, 80%, 60%)`,
         });
-        console.log(`🚀 팀 [${teamName}] (id=${teamId}) → 세션 [${sessionId}] (${room.teams.size}팀)`);
+        console.log(`🚀 팀 입장 (id=${teamId}) → 세션 [${sessionId}] (${room.teams.size}팀)`);
       }
 
       // 재접속 시 레이스 데이터 복구
@@ -279,7 +279,7 @@ export function setupSocketHandlers(io, db) {
       io.to(sessionRoom(currentSession)).emit('ready_update', status);
 
       const team = room.teams.get(currentTeamId);
-      console.log(`✅ 팀 [${team?.name}] 레디! (${status.readyTeams.length}/${status.totalTeams})`);
+      console.log(`✅ 팀 레디! (${status.readyTeams.length}/${status.totalTeams})`);
 
       // 모두 레디면 교사에게 알림
       if (areAllReady(currentSession)) {
@@ -348,7 +348,7 @@ export function setupSocketHandlers(io, db) {
       team.momentum = momentum;
       team.paramsConfirmed = true;
 
-      console.log(`🏎️ 팀 [${team.name}] 파라미터: lr=${learningRate}, m=${momentum}`);
+      console.log(`🏎️ 파라미터: lr=${learningRate}, m=${momentum}`);
 
       // 레이스 진행 중이면 공의 파라미터도 즉시 업데이트
       const ball = room.raceBalls[currentTeamId];
@@ -686,7 +686,7 @@ export function setupSocketHandlers(io, db) {
         teamId: currentTeamId,
       });
 
-      console.log(`🎮 솔로 연습 시작! 팀 [${team.name}] 맵=${level}`);
+      console.log(`🎮 솔로 연습 시작! 맵=${level}`);
     }));
 
     // ──────────────────────────────
@@ -730,7 +730,7 @@ export function setupSocketHandlers(io, db) {
 
       socket.emit('solo_finished', { results: [{ ...result, rank: 1 }], balls: { [currentTeamId]: ball } });
 
-      console.log(`⏹️ 솔로 연습 정지! 팀 [${team?.name}]`);
+      console.log(`⏹️ 솔로 연습 정지!`);
     }));
 
     // ──────────────────────────────
@@ -755,7 +755,7 @@ export function setupSocketHandlers(io, db) {
       // 팀 연결 해제 처리
       if (currentTeamId && room.teams.has(currentTeamId)) {
         const team = room.teams.get(currentTeamId);
-        console.log(`💫 팀 [${team.name}] 연결 해제 (세션 [${currentSession}])`);
+        console.log(`💫 팀 연결 해제 (세션 [${currentSession}])`);
 
         // lobby에서만 팀 제거 (레이스 중이면 유지)
         if (room.racePhase === 'lobby') {
