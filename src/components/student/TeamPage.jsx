@@ -63,7 +63,7 @@ export default function TeamPage() {
 
     // Reconnect
     if (sessionId && myTeam) {
-      socket.emit('team:join', { sessionId, teamId: myTeam.id, teamName: myTeam.name });
+      socket.emit('team:join', { sessionId, teamId: myTeam.id, teamToken: myTeam.teamToken });
     }
 
     socket.on('phase_changed', (data) => {

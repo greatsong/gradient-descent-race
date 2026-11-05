@@ -1,3 +1,4 @@
+import { isTeacherToken, safeEqual } from './auth.js';
 import {
   rooms,
   getRoom,
@@ -139,6 +140,12 @@ function calculateCumulativeStandings(room) {
 // ═══════════════════════════════════════════════
 
 export function setupSocketHandlers(io, db) {
+  const findSession = (sessionId) => (
+    typeof sessionId === 'string' && /^[A-Za-z0-9_-]{1,32}$/.test(sessionId)
+      ? db.prepare('SELECT id FROM sessions WHERE id = ?').get(sessionId)
+      : null
+  );
+
   io.on('connection', (socket) => {
     console.log(`✨ 연결: ${socket.id}`);
 
@@ -149,8 +156,12 @@ export function setupSocketHandlers(io, db) {
     // ▸ 교사 입장
     // ──────────────────────────────
     socket.on('teacher:join', safeHandler('teacher:join', (payload) => {
-      const { sessionId } = payload;
-      if (!sessionId) return;
+      const { sessionId, token } = payload || {};
+      // 예전에는 인증 없이 어떤 세션의 교사도 될 수 있었다. 방 이름 주입을 막으려고 세션도 DB에서 확인한다
+      if (!isTeacherToken(db, token) || !findSession(sessionId)) {
+        socket.emit('auth_error', { message: '교사 인증이 필요합니다. PIN으로 다시 로그인하세요.' });
+        return;
+      }
 
       currentSession = sessionId;
       const room = getRoom(sessionId);
@@ -168,8 +179,19 @@ export function setupSocketHandlers(io, db) {
     // ▸ 팀(학생) 입장
     // ──────────────────────────────
     socket.on('team:join', safeHandler('team:join', (payload) => {
-      const { sessionId, teamId, teamName, members, color } = payload;
+      const { sessionId, teamId, teamToken } = payload || {};
       if (!sessionId || !teamId) return;
+
+      // 등록 때 받은 팀 토큰을 확인한다. 이름·색은 payload가 아니라 DB 값을 쓴다
+      const teamRow = findSession(sessionId) && Number.isInteger(teamId)
+        ? db.prepare('SELECT name, color, access_token FROM teams WHERE id = ? AND session_id = ?').get(teamId, sessionId)
+        : null;
+      if (!teamRow || !safeEqual(teamToken, teamRow.access_token)) {
+        socket.emit('team:join:error', { message: '세션 코드로 다시 입장해 주세요.' });
+        return;
+      }
+      const teamName = teamRow.name;
+      const color = teamRow.color;
 
       // 인원 제한 체크
       const existingRoom = getRoom(sessionId);
@@ -196,7 +218,7 @@ export function setupSocketHandlers(io, db) {
         addTeamToRoom(sessionId, teamId, {
           socketId: socket.id,
           name: sanitize(teamName, 24) || `Team ${teamId}`,
-          members: members || '[]',
+          members: '[]', // 팀원 이름은 소켓으로 퍼뜨리지 않는다. 교사 화면은 REST로 받는다
           color: color || `hsl(${Math.floor(Math.random() * 360)}, 80%, 60%)`,
         });
         console.log(`🚀 팀 [${teamName}] (id=${teamId}) → 세션 [${sessionId}] (${room.teams.size}팀)`);
